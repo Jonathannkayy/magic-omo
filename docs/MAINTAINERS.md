@@ -56,7 +56,8 @@ gh api -X PUT repos/$R/environments/npm --input - <<JSON
 { "reviewers": [ { "type": "User", "id": $OWNER_ID } ], "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true } }
 JSON
 gh api -X POST repos/$R/environments/npm/deployment-branch-policies -f name='v*' -f type=tag
-# then: gh secret set NPM_TOKEN --env npm
+# then on npmjs.com: magic-omo → Settings → Trusted Publisher → GitHub Actions,
+# owner Jonathannkayy, repo magic-omo, workflow release.yml, environment npm (no token stored)
 ```
 
 Verify:
@@ -72,7 +73,7 @@ gh api repos/$R --jq '{squash:.allow_squash_merge, merge:.allow_merge_commit, re
 
 1. Bump `version` in `package.json`, then update `compat.json` if needed and run `npm run compat:gen`.
 2. Merge the PR, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. `release.yml` tests the code, packs it, and creates a GitHub release. The npm publish waits for approval on the `npm` environment and is skipped when `NPM_TOKEN` is unset.
+3. `release.yml` tests the code, packs it, and creates a GitHub release. The npm publish waits for the owner's approval on the `npm` environment, then publishes with provenance through npm trusted publishing (OIDC, no stored token).
 
 ## Re-verifying a new OMO / Magic Context version
 
