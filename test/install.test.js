@@ -173,7 +173,7 @@ test('install record merges later additions; uninstall without record removes on
   const res = uninstall(w.env);
   assert.equal(res.status, 'reverted-without-record');
   const s = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
-  assert.ok(!s.extensions.includes(p.extension));
+  assert.ok(!(s.extensions ?? []).includes(p.extension));
 });
 
 test('applySetup refuses if the file changed between plan and apply', (t) => {

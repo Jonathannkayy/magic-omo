@@ -164,7 +164,7 @@ test('vendor tamper detected; guard auto-uninstalls only when live + hard fail',
   const r = await guardRun(w.env, { stderr: { write: (s) => { err += s; } } });
   assert.match(r.action, /auto-uninstalled/);
   assert.match(err, /bridge was LIVE/);
-  assert.ok(!JSON.parse(readFileSync(w.settingsFile, 'utf8')).extensions.includes(p.extension));
+  assert.ok(!(JSON.parse(readFileSync(w.settingsFile, 'utf8')).extensions ?? []).includes(p.extension));
   assert.match(readFileSync(path.join(p.magicOmoHome, 'guard.log'), 'utf8'), /SHA256SUMS/);
 });
 

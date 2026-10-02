@@ -1,0 +1,224 @@
+<div align="center">
+
+# magic-omo
+
+**Magic Context for OMO Native: one memory shared by OMO, OpenCode and Hermes.**
+
+Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Native](https://github.com/code-yeongyu/oh-my-openagent)
+(the Senpi-based `omo` CLI). It shares the *same* `context.db` your other agents already use, so memories, notes and compartments carry over between them.
+
+[![CI](https://github.com/Jonathannkayy/magic-omo/actions/workflows/ci.yml/badge.svg)](https://github.com/Jonathannkayy/magic-omo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-339933?logo=node.js&logoColor=white)](package.json)
+[![OMO Native](https://img.shields.io/badge/OMO%20Native-5.1.7-7c3aed)](docs/COMPATIBILITY.md)
+[![Magic Context](https://img.shields.io/badge/Magic%20Context-0.43.2-f59e0b)](https://github.com/cortexkit/magic-context)
+
+[Quick start](#quick-start) · [What setup changes](#what-setup-changes) · [Doctor](#doctor) · [Compatibility](#compatibility) · [FAQ](#faq) · [Credits](#credits--thanks)
+
+<img src="docs/assets/hero.png" alt="Terminal running OMO Native with Magic Context loaded; the status line shows an mc: segment" width="820">
+<!-- SCREENSHOT: hero.png — OMO Native TUI in a dark terminal, mid-session, with the bottom status line showing the Magic Context `mc:` segment (context usage + compartment count) next to the model name. -->
+
+</div>
+
+> [!IMPORTANT]
+> **Unofficial community bridge.** It is not affiliated with or endorsed by cortexkit, oh-my-openagent, or Senpi. It loads Magic Context's **official Pi runtime unmodified** and does nothing else to it.
+
+## Why
+
+Magic Context gives coding agents managed context with no hard wall: background compaction into a searchable history, durable project memory, notes, and a dreamer. OpenCode and Hermes can already share one Magic Context store. OMO Native can load Pi extensions, but making Magic Context work there safely has a few traps:
+
+- **Two context managers fight.** OMO's native compaction has to be turned off while Magic Context owns the window.
+- **Two automatic memory systems duplicate context.** OMO's own facts, recall, nudge, reflection and dream subsystems inject memory next to Magic Context's.
+- **Historian models silently fail to resolve** (see [gotchas](#historian-model-gotchas)).
+- **Mixed versions on one DB break everyone.** Every process that shares `context.db` must run the same Magic Context series.
+
+`magic-omo` handles each of these for you, makes every change reversible, and re-checks the setup whenever OMO or the pinned extension changes.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  subgraph OMO["OMO Native (omo-ai)"]
+    S[Senpi engine] -->|extensions[] local path| X["@cortexkit/pi-magic-context<br/>(pinned, vendored, unmodified)"]
+  end
+  subgraph OC[OpenCode]
+    P["@cortexkit/opencode-magic-context"]
+  end
+  subgraph H[Hermes]
+    MH[magic-hermes]
+  end
+  X --> DB[("context.db<br/>~/.local/share/cortexkit/magic-context")]
+  P --> DB
+  MH --> DB
+  CFG["~/.config/cortexkit/magic-context.jsonc<br/>(shared config)"] -.-> X & P & MH
+  G["magic-omo guard"] -. watches .-> OMO
+```
+
+## Quick start
+
+```bash
+npx magic-omo setup      # interactive: shows every change, asks before applying
+npx magic-omo doctor     # PASS / WARN / FAIL / INFO
+# restart your OMO sessions (running sessions keep their old setup)
+```
+
+Requirements: Node.js ≥ 20, OMO Native, and `npm`, which is used once to fetch the pinned runtime. Useful flags: `--dry-run` writes nothing. `--yes` runs non-interactively. `--keep-omo-memory` leaves OMO's automatic memory on. `--todowrite` / `--no-todowrite` decide the shared-config question up front.
+
+## What setup changes
+
+Every row is backed up first. Each file is written atomically (temp file plus rename, file mode preserved), recorded in an install record, and reverted by `magic-omo uninstall`.
+
+| File | Change | Why | Default |
+|---|---|---|---|
+| `~/.local/share/magic-omo/vendor/` | `npm install --ignore-scripts --save-exact @cortexkit/pi-magic-context@0.43.2`, integrity checked against the pin, then frozen with `SHA256SUMS` | Same bytes on every machine; nothing global | always |
+| `$OMO_AGENT_DIR/settings.json` | append the **absolute local path** of the pinned package to `extensions[]` | Senpi's update checker skips `local` and pinned sources, so `omo update` never moves it | always |
+| `$OMO_AGENT_DIR/settings.json` | `compaction.enabled = false`; sibling keys such as `summarizationMaxDurationMs` are preserved | Magic Context owns the context window (same as upstream OMP setup) | always |
+| `~/.omo/omo.jsonc` | `"[native]".memory.{facts,recall,nudge,reflection,dream}.enabled = false`, merged in with comments preserved | One automatic memory injector, not two | on (`--keep-omo-memory` to skip) |
+| `~/.config/cortexkit/magic-context.jsonc` | `todowrite.enabled = false` | OMO ships its own `todo` tool | **asked**, because this file is shared with every host |
+
+`$OMO_AGENT_DIR` resolves to the first of `OMO_CODING_AGENT_DIR`, `SENPI_CODING_AGENT_DIR`, `PI_CODING_AGENT_DIR`, falling back to `~/.omo/agent`, exactly as `omo` resolves it. If `settings.jsonc` exists, it is the file edited.
+
+## Memory split
+
+| Concern | Owner after setup | Notes |
+|---|---|---|
+| Context window / compaction | **Magic Context** | OMO `compaction.enabled=false` |
+| Automatic memory (facts extraction, recall sidecar, nudges, reflection, dream) | **Magic Context** | OMO `[native].memory.<x>.enabled=false`. Verified in a sandbox: OMO wrote no facts-queue, recall or reflection files |
+| Curated memory: explicit `memory` tool, soul/persona | **OMO** (unchanged) | An explicit "remember X" still commits to OMO's memory repo |
+| `memory.enabled`, search, sync | **OMO** (unchanged) | Never touched |
+| Task list | **OMO `todo`** | MC `todowrite` off, only if you agree |
+| Cross-agent search (`ctx_search`, `ctx_memory`, notes) | **Magic Context** | Shared with OpenCode and Hermes through `context.db` |
+
+<img src="docs/assets/ctx-search.png" alt="ctx_search inside OMO returning a memory originally written from OpenCode" width="760">
+<!-- SCREENSHOT: ctx-search.png — OMO Native tool call `ctx_search` with its result list showing a memory/compartment hit whose origin is a different harness (OpenCode or Hermes), proving the shared store. -->
+
+## Historian model gotchas
+
+The historian and dreamer run as OMO subagents and use the `historian.pi` / `dreamer.pi` lines of the shared config. This is the most common reason "Magic Context loads but never compacts":
+
+1. **`google/…` and `openai/…` get rewritten.** For Pi subagents, Magic Context rewrites `google/x` to `google-antigravity/x` and `openai/x` to `openai-codex/x`. OMO Native has neither provider, so the subagent fails with:
+   ```
+   Model "google-antigravity/gemini-3.1-pro-preview" not found
+   ```
+   `doctor` reports this as **FAIL** without calling anything.
+2. **Bare ids can be ambiguous.** If more than one *authenticated* OMO provider offers the id, Senpi refuses with:
+   ```
+   Model "claude-sonnet-5-5" is ambiguous across providers: anthropic, anthropic-subscription. More than one matching provider is authenticated. Use --provider or provider/model.
+   ```
+   You can fix this in two ways. One is to authenticate only one provider that offers the id, for example by removing a dead or unused key. The other is to use an OMO-native prefix such as `anthropic-subscription/claude-sonnet-5-5`. **The line is shared**, so every other host that reads `historian.pi` (for example Hermes through magic-hermes) must accept the same prefix.
+3. **Never set the harness to `omp`.** In omp mode Magic Context passes `--no-rules`, and Senpi rejects it with `Unknown option: --no-rules`.
+
+`magic-omo doctor --probe-models` asks OMO to resolve each model in exactly the shape the historian uses. This makes **one small real model call per distinct model**. OMO caches provider availability, so a single "ambiguous" result is reported as WARN; retry once before acting on it.
+
+## Doctor
+
+<img src="docs/assets/doctor.png" alt="magic-omo doctor output with colored PASS/WARN/INFO lines" width="760">
+<!-- SCREENSHOT: doctor.png — `magic-omo doctor` in a dark terminal with colored status tags, healthy install, final summary line "… pass, 0 warn, 0 fail …". -->
+
+Example output (illustrative; paths shortened):
+
+```text
+magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
+
+  PASS  Node.js runtime: node 22.22.2 (magic-omo needs >= 20)
+  INFO  Resolved paths: agent dir ~/.omo/agent [default ($HOME/.omo/agent)]; …
+  PASS  OMO Native (omo-ai): 5.1.7 at ~/.nvm/…/omo-ai — verified
+  PASS  Senpi engine: 2026.9.30 — verified
+  PASS  Senpi extension hook contract: session_before_compact is dispatched
+  PASS  Update immunity of local extension: Senpi update checker skips local/pinned sources, so `omo update` never moves the bridge
+  PASS  Pinned Magic Context Pi runtime: @cortexkit/pi-magic-context@0.43.2, integrity matches pin, 4223 files match SHA256SUMS
+  PASS  Build schema fence: build supports schema <= v90 (pin v90)
+  PASS  Shared context.db: schema v90 <= fence v90 (read-only via node:sqlite)
+  PASS  OpenCode Magic Context: 0.43.2 via package.json (@cortexkit/opencode-magic-context) (bridge 0.43.2)
+  PASS  magic-hermes: supported series 0.43 (bridge 0.43)
+  PASS  Bridge loaded by OMO: extensions[] contains ~/.local/share/magic-omo/vendor/node_modules/@cortexkit/pi-magic-context
+  PASS  OMO native compaction: compaction.enabled=false (Magic Context owns the window)
+  PASS  OMO automatic memory: [native].memory facts/recall/nudge/reflection/dream are off; curated memory untouched
+  INFO  Model historian.pi.model: claude-sonnet-5-5 — bare id …; verify with --probe-models
+  PASS  Magic Context todowrite: disabled (OMO ships its own `todo` tool)
+  INFO  Running sessions: running OMO sessions keep the setup they started with; restart them after setup/uninstall
+```
+
+`doctor --json` returns machine-readable output and exits nonzero on any FAIL. `--strict` turns unverified OMO/Senpi versions into FAIL.
+
+## Compatibility
+
+<!-- BEGIN GENERATED: compat (npm run compat:gen) -->
+| Magic Context (`@cortexkit/pi-magic-context`) | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |
+|---|---|---|---|---|---|---|
+| 0.43.2 | v90 | 5.1.7 | 2026.9.30 | ✅ verified | 2026-10-01 | Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits. |
+| 0.43.2 | v90 | 5.1.8 | unknown | ⚠️ unverified | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
+<!-- END GENERATED: compat -->
+
+Full details are in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), which is generated from [`compat.json`](compat.json).
+
+**Same-series rule:** every process that shares `context.db` (OMO through magic-omo, OpenCode, Hermes, Pi) must run the same Magic Context `major.minor`. A DB schema newer than this build's fence fails closed. `doctor` checks both.
+
+## Guard (optional)
+
+```bash
+magic-omo guard install   # opt-in: systemd --user .path + .timer (Linux) or a launchd agent (macOS)
+```
+
+The guard re-runs every check whenever the omo-ai or Senpi `package.json`, the vendored extension, or the pin changes, plus once a day. If the bridge is live and a **hard** check fails, it uninstalls the bridge automatically and writes a loud message to stderr and `~/.local/share/magic-omo/guard.log`. When everything is healthy it stays silent. Remove it with `magic-omo guard uninstall`.
+
+## Safety guarantees
+
+- **Reversible.** Each change is recorded, and `uninstall` reverts exactly those changes. OMO rewrites `settings.json` all the time (`tipsHistory`, last model, …), so uninstall never restores whole files. A value you changed after setup is left as it is.
+- **Comment-preserving.** `omo.jsonc` and `magic-context.jsonc` are edited with targeted text splices, so comments, ordering and trailing commas survive. Tests check that a setup/uninstall round-trip gives back byte-identical files.
+- **Atomic, backed up, idempotent.** Writes go to a temp file that is then renamed, with the original file mode kept. A backup is taken before every write, and running setup twice changes nothing.
+- **Read-only where it should be.** The shared DB is only ever opened read-only. `omo` is never executed unless you pass `--probe-models`.
+- **Pinned.** The exact version and npm integrity are checked, every vendored file is hashed, and npm install scripts are disabled.
+- **No foreign config changed silently.** The shared Magic Context config is only edited after you explicitly agree.
+
+## Uninstall
+
+```bash
+magic-omo guard uninstall   # if you installed the guard
+magic-omo uninstall         # reverts recorded changes; restart OMO sessions afterwards
+rm -rf ~/.local/share/magic-omo   # optional: remove the vendored runtime, records and backups
+```
+
+## FAQ
+
+**Does `omo update` break or move the bridge?** No. The extension is a local path, and Senpi's update checker skips local and pinned sources. If OMO itself changes, the guard and doctor notice.
+
+**Will my running OMO session pick it up?** No. Sessions keep the setup they started with, so restart them.
+
+**Does this modify Magic Context?** No. It loads `@cortexkit/pi-magic-context` exactly as published.
+
+**Where is my data?** In Magic Context's normal store (`MAGIC_CONTEXT_STORAGE_DIR`, else `$XDG_DATA_HOME/cortexkit/magic-context`, else `~/.local/share/cortexkit/magic-context`), shared with your other hosts.
+
+**Why does OMO show up as harness `pi` in the DB?** OMO Native runs Magic Context's Pi runtime. That is intended, and rows written by OpenCode and Hermes stay attributed to them.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Magic Context never compacts | `doctor --probe-models`; see [historian gotchas](#historian-model-gotchas) |
+| `schema vN is NEWER than this build's fence` | Another host upgraded Magic Context. Upgrade magic-omo to the same series (or pin the others back) |
+| `OpenCode Magic Context … FAIL` | Mixed series on one DB. Align versions before using any of them |
+| `Duplicate Magic Context loaders` | Remove the other `pi-magic-context` package or auto-discovered extension |
+| Guard uninstalled the bridge | Read `~/.local/share/magic-omo/guard.log`, fix the cause, run `magic-omo setup` |
+
+### End-to-end sandbox
+
+`test/e2e/sandbox.sh` runs **real** OMO Native against a fully isolated HOME, agent dir, XDG directories, TMPDIR and a read-only snapshot of your DB. It refuses to start if any path resolves to your real `~/.omo` or live store. CI does not run it because it needs OMO credentials. See the header of the script.
+
+## Contributing
+
+PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first (fork + PR, tests required, conventional commits). Bugs in Magic Context or OMO themselves belong upstream; the [issue chooser](.github/ISSUE_TEMPLATE/config.yml) links there.
+
+## Credits & thanks
+
+This project is a small piece of glue between two excellent projects:
+
+- **[Magic Context](https://github.com/cortexkit/magic-context)** by **Ufuk Altinok** ([cortexkit](https://github.com/cortexkit)), MIT. magic-omo downloads and loads its official Pi runtime unmodified. The setup and doctor patterns follow its OMP integration.
+- **[oh-my-openagent / OMO Native](https://github.com/code-yeongyu/oh-my-openagent)** by **Yeongyu Kim** ([code-yeongyu](https://github.com/code-yeongyu)), MIT.
+- **[Senpi](https://github.com/code-yeongyu/senpi)**, the engine under OMO Native (`package.json`: MIT, author Mario Zechner), descended from the Pi coding agent.
+
+All trademarks and project names belong to their respective owners. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Jonathan Khalil
