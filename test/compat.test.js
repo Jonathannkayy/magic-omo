@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { renderDoc, spliceReadme } from '../scripts/gen-compat.js';
+import { renderDoc, renderPins, spliceReadme } from '../scripts/gen-compat.js';
 import { guardTargets } from '../src/guard.js';
 import { ROOT, makeWorld } from './helpers.js';
 
@@ -12,6 +12,23 @@ test('docs/COMPATIBILITY.md and README block match compat.json', () => {
   assert.equal(readFileSync(path.join(ROOT, 'docs', 'COMPATIBILITY.md'), 'utf8'), renderDoc(compat));
   const readme = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   assert.equal(spliceReadme(readme, compat), readme);
+});
+
+test('pin table names omo-ai AND senpi for every verified combination', () => {
+  const fake = {
+    default_pin: '9.9.9',
+    pins: [{ package: 'p', magic_context: '9.9.9', schema_fence: 1, lockfile: 'l', integrity: 'i' }],
+    matrix: [
+      { magic_context: '9.9.9', omo: '1.2.3', senpi: '2026.1.1', status: 'verified' },
+      { magic_context: '9.9.9', omo: '1.2.4', senpi: '2026.1.2', status: 'unverified' },
+    ],
+  };
+  const row = renderPins(fake).split('\n')[2];
+  assert.match(row, /omo-ai 1\.2\.3 \/ senpi 2026\.1\.1 \|$/);
+  assert.doesNotMatch(row, /1\.2\.4/);
+  for (const r of compat.matrix.filter((x) => x.status === 'verified')) {
+    assert.ok(renderPins(compat).includes(`omo-ai ${r.omo} / senpi ${r.senpi}`), `${r.omo}/${r.senpi}`);
+  }
 });
 
 test('every pin agrees with its vendor manifests, newest first, default_pin exists', () => {

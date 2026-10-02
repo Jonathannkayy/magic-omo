@@ -10,7 +10,7 @@ matches the hosts already running on your machine (`magic-omo pins` lists them, 
 | Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |
 |---|---|---|---|---|
 | `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](../vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | — (not yet) |
-| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](../vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 |
+| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](../vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 / senpi 2026.9.30 |
 
 Package: `@cortexkit/pi-magic-context`. Each pin's exact dependency tree lives in its own lockfile and is
 installed into `~/.local/share/magic-omo/vendor/<version>/`, integrity-checked and frozen with `SHA256SUMS`.

@@ -46,6 +46,9 @@ export function renderTable(compat) {
   return lines.join('\n');
 }
 
+/** One verified combination as shown in the pin table: both halves of the OMO runtime. */
+export const verifiedCombo = (r) => `omo-ai ${r.omo} / senpi ${r.senpi}`;
+
 /** The pin table: one row per supported Magic Context version. */
 export function renderPins(compat) {
   const lines = [
@@ -55,7 +58,7 @@ export function renderPins(compat) {
   for (const p of compat.pins) {
     const verified = rowsFor(compat, p.magic_context).filter((r) => r.status === 'verified');
     const dflt = p.magic_context === compat.default_pin ? ' **(default)**' : '';
-    lines.push(`| \`${p.magic_context}\`${dflt} | \`v${p.schema_fence}\` | [\`${p.lockfile}\`](../${p.lockfile}) | \`${p.integrity}\` | ${verified.length ? verified.map((r) => `omo-ai ${r.omo}`).join(', ') : '— (not yet)'} |`);
+    lines.push(`| \`${p.magic_context}\`${dflt} | \`v${p.schema_fence}\` | [\`${p.lockfile}\`](../${p.lockfile}) | \`${p.integrity}\` | ${verified.length ? verified.map(verifiedCombo).join(', ') : '— (not yet)'} |`);
   }
   return lines.join('\n');
 }
