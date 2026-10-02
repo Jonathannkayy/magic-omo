@@ -44,13 +44,19 @@ Environment: OMO_CODING_AGENT_DIR / SENPI_CODING_AGENT_DIR / PI_CODING_AGENT_DIR
 XDG_DATA_HOME, MAGIC_CONTEXT_STORAGE_DIR are honoured exactly like OMO and Magic Context do.
 MAGIC_OMO_HOME overrides magic-omo's own data dir (default $XDG_DATA_HOME/magic-omo).`;
 
+/** Flags that take a value, as `--mc 0.44.4` or `--mc=0.44.4`. */
+export const VALUE_FLAGS = new Set(['mc']);
+
 export function parseArgs(argv) {
   const flags = {};
   const pos = [];
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a.startsWith('--')) {
       const [k, v] = a.slice(2).split('=');
-      flags[k] = v ?? true;
+      if (v === undefined && VALUE_FLAGS.has(k) && argv[i + 1] && !argv[i + 1].startsWith('-')) {
+        flags[k] = argv[++i];
+      } else flags[k] = v ?? true;
     } else if (a === '-y') flags.yes = true;
     else if (a === '-h') flags.help = true;
     else pos.push(a);
