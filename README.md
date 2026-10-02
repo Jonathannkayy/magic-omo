@@ -119,10 +119,13 @@ Leaving it on costs nothing, because Magic Context still owns the window: its
 cancelling — magic-context owns compaction`).
 
 Verified in an isolated sandbox on a 200K-window model, with Magic Context loaded and the
-flag on: 18 consecutive turns of ~28 KB pasted notes each, usage climbing to **96.0%**, then
-Magic Context's own historian fired (`reason=force_band`) and published a compartment —
-with **zero** native compaction entries written to the session. With the flag off, the same
-workload wedged at turn 15 and every later turn failed.
+flag on: 14 consecutive turns of tool-read + long-analysis work, usage held between 47% and
+68% while Magic Context published **6 compartments**, and every `compaction` entry written to
+the session came from Magic Context's own marker (`fromHook: true`, summary prefixed
+`Magic Context compacted:`) — OMO's native compactor never ran. A second run of 18 turns of
+~28 KB pasted notes each climbed to **96.0%** before Magic Context's `force_band` historian
+fired. With the flag off, the same workload wedged and every later turn failed with
+`ModelUsabilityBudgetError`.
 
 ## Historian model gotchas
 
