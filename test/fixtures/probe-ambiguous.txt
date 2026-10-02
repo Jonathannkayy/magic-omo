@@ -1,0 +1,1 @@
+Error: Model "claude-sonnet-5-5" is ambiguous across providers: anthropic, anthropic-subscription. More than one matching provider is authenticated. Use --provider or provider/model.

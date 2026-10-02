@@ -1,0 +1,59 @@
+{
+  "name": "magic-omo",
+  "version": "0.1.0",
+  "description": "Unofficial community bridge: run Magic Context (cortexkit) inside OMO Native (oh-my-openagent's Senpi-based omo CLI), sharing one context.db with OpenCode and Hermes.",
+  "type": "module",
+  "bin": {
+    "magic-omo": "bin/magic-omo.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "vendor/package.json",
+    "vendor/package-lock.json",
+    "compat.json",
+    "docs/COMPATIBILITY.md",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "lint": "eslint .",
+    "compat:gen": "node scripts/gen-compat.js",
+    "compat:check": "node scripts/gen-compat.js --check",
+    "shellcheck": "shellcheck test/e2e/*.sh",
+    "check": "npm run lint && npm run compat:check && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jonathannkayy/magic-omo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jonathannkayy/magic-omo/issues"
+  },
+  "homepage": "https://github.com/Jonathannkayy/magic-omo#readme",
+  "license": "MIT",
+  "author": "Jonathan Khalil",
+  "keywords": [
+    "magic-context",
+    "cortexkit",
+    "omo",
+    "oh-my-openagent",
+    "senpi",
+    "pi",
+    "coding-agent",
+    "context-management",
+    "memory",
+    "llm",
+    "cli"
+  ],
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "eslint": "9.39.1",
+    "globals": "16.5.0"
+  }
+}
