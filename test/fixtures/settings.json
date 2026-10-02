@@ -1,0 +1,29 @@
+{
+  "permissionPreset": "default",
+  "npmCommand": [
+    "npm"
+  ],
+  "packages": [
+    {
+      "source": "git:github.com/example/pi-some-extension@0123456789abcdef0123456789abcdef01234567",
+      "extensions": []
+    }
+  ],
+  "lastChangelogVersion": "5.1.7",
+  "theme": "dark",
+  "tipsHistory": {
+    "shown": [
+      "tip-a",
+      "tip-b"
+    ]
+  },
+  "defaultProvider": "anthropic-subscription",
+  "defaultModel": "claude-opus-5-5",
+  "compaction": {
+    "enabled": true,
+    "summarizationMaxDurationMs": 1500000
+  },
+  "modelThinkingLevels": {
+    "claude-opus-5-5": "high"
+  }
+}

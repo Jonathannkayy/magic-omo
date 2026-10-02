@@ -1,0 +1,24 @@
+{
+  // OMO Native user config. Comments, ordering and trailing commas must survive.
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/omo.schema.json",
+  "[opencode]": {
+    "disabled_hooks": [
+      "context-window-monitor", // keep: Magic Context owns the window
+      "preemptive-compaction",
+    ],
+  },
+  /* The native harness block. */
+  "[native]": {
+    "categories": {
+      "quick": {
+        "models": [
+          { "model": "anthropic-subscription/claude-haiku-4-5", "reasoning": "off" }, // fast lane
+        ],
+      },
+    },
+    "memory": {
+      "enabled": true, // curated memory stays ON
+      "recall": { "enabled": true, "maxItems": 8 },
+    },
+  },
+}

@@ -1,0 +1,36 @@
+{
+  "$comment": "Single source of truth for the version contract. docs/COMPATIBILITY.md and the README compatibility block are GENERATED from this file by `npm run compat:gen`; CI fails on drift.",
+  "pin": {
+    "package": "@cortexkit/pi-magic-context",
+    "magic_context": "0.43.2",
+    "integrity": "sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==",
+    "schema_fence": 90,
+    "omo": "5.1.7",
+    "senpi": "2026.9.30"
+  },
+  "matrix": [
+    {
+      "magic_context": "0.43.2",
+      "schema_fence": 90,
+      "omo": "5.1.7",
+      "senpi": "2026.9.30",
+      "status": "verified",
+      "verified_on": "2026-10-01",
+      "notes": "Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits."
+    },
+    {
+      "magic_context": "0.43.2",
+      "schema_fence": 90,
+      "omo": "5.1.8",
+      "senpi": "unknown",
+      "status": "unverified",
+      "verified_on": null,
+      "notes": "Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified."
+    }
+  ],
+  "rules": [
+    "Every process sharing one context.db (OMO Native via magic-omo, OpenCode, Hermes via magic-hermes, Pi) must run the same Magic Context major.minor series.",
+    "A context.db whose schema is newer than the pinned build's fence makes the pinned extension fail closed; doctor reports FAIL.",
+    "Magic Context 0.44.x introduces schema v91; magic-omo will pin it only after re-verification."
+  ]
+}

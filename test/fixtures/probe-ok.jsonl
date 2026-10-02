@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"00000000-0000-0000-0000-000000000000"}
+{"type":"message_end","message":{"role":"assistant","provider":"anthropic-subscription","model":"claude-sonnet-5-5","content":[{"type":"text","text":"ok"}]}}
