@@ -1,0 +1,34 @@
+name: Bug report
+description: Something magic-omo does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: If the bug is inside Magic Context or OMO itself, please report it upstream (links in the issue chooser).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `magic-omo doctor --json`
+      description: Redact paths if you like; keep statuses and versions.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions (magic-omo, omo-ai, Node.js, OS)
+      placeholder: magic-omo 0.1.0, omo-ai 5.1.7, node 22.x, macOS 15 / Ubuntu 24.04
+    validations:
+      required: true
