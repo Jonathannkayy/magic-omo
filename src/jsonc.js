@@ -171,10 +171,6 @@ function containerLayout(text, node, unit) {
   return { empty: false, multiline, childIndent, containerIndent };
 }
 
-function childEnd(node, child) {
-  return node.type === 'object' ? child.value.end : child.end;
-}
-
 /**
  * Insert `key: value` as the last member of the object at `path`.
  * Returns { text, edit } where edit records what is needed for an exact revert.

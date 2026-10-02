@@ -58,7 +58,7 @@ export function describeEdit(e) {
  * Apply a plan produced by planSetup. Merges into an existing install record so a
  * second setup (e.g. adding todowrite later) stays revertible.
  */
-export function applySetup(plan, env = process.env, { log = () => {} } = {}) {
+export function applySetup(plan, _env = process.env, { log = () => {} } = {}) {
   const { paths } = plan;
   const ts = stamp();
   const prior = readRecord(paths);
