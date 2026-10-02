@@ -1,4 +1,5 @@
 name: CI
+# (test) comment-only change to a protected file
 on:
   push:
     branches: [main]
