@@ -15,8 +15,8 @@ Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Nati
 
 [Quick start](#quick-start) · [What setup changes](#what-setup-changes) · [Doctor](#doctor) · [Compatibility](#compatibility) · [FAQ](#faq) · [Credits](#credits--thanks)
 
-<img src="docs/assets/hero.png" alt="Terminal running OMO Native with Magic Context loaded; the status line shows an mc: segment" width="820">
-<!-- SCREENSHOT: hero.png — OMO Native TUI in a dark terminal, mid-session, with the bottom status line showing the Magic Context `mc:` segment (context usage + compartment count) next to the model name. -->
+<img src="docs/assets/hero.png" alt="OMO Native mid-session in a demo project: todo list, applied patch diffs, a Magic Context compaction notice, and the status line showing the model plus an mc: segment with the historian running" width="820">
+<!-- hero.png: real OMO Native 5.1.7 TUI session on a fictional demo project with a fresh, empty Magic Context store. How it was made: docs/assets/README.md -->
 
 </div>
 
@@ -89,8 +89,8 @@ Every row is backed up first. Each file is written atomically (temp file plus re
 | Task list | **OMO `todo`** | MC `todowrite` off, only if you agree |
 | Cross-agent search (`ctx_search`, `ctx_memory`, notes) | **Magic Context** | Shared with OpenCode and Hermes through `context.db` |
 
-<img src="docs/assets/ctx-search.png" alt="ctx_search inside OMO returning a memory originally written from OpenCode" width="760">
-<!-- SCREENSHOT: ctx-search.png — OMO Native tool call `ctx_search` with its result list showing a memory/compartment hit whose origin is a different harness (OpenCode or Hermes), proving the shared store. -->
+<img src="docs/assets/ctx-search.png" alt="ctx_search inside OMO returning two project memories that were written through the Hermes runtime (magic-hermes) into the same context.db" width="760">
+<!-- ctx-search.png: memories id=4 and id=5 were written by the Hermes Magic Context runtime (ctx_memory over its JSON-RPC bridge) into the demo store, then found by OMO's ctx_search. How it was made: docs/assets/README.md -->
 
 ## Why native compaction stays on
 
@@ -147,8 +147,8 @@ The historian and dreamer run as OMO subagents and use the `historian.pi` / `dre
 
 ## Doctor
 
-<img src="docs/assets/doctor.png" alt="magic-omo doctor output with colored PASS/WARN/INFO lines" width="760">
-<!-- SCREENSHOT: doctor.png — `magic-omo doctor` in a dark terminal with colored status tags, healthy install, final summary line "… pass, 0 warn, 0 fail …". -->
+<img src="docs/assets/doctor.png" alt="magic-omo doctor on a fresh install with colored PASS and INFO lines, ending in 14 pass, 0 warn, 0 fail, 6 info — OK" width="760">
+<!-- doctor.png: `magic-omo doctor` right after `magic-omo setup --yes` in a throwaway HOME. How it was made: docs/assets/README.md -->
 
 Example output (illustrative; paths shortened):
 
