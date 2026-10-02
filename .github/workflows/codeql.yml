@@ -10,6 +10,8 @@ permissions:
 jobs:
   analyze:
     name: analyze (javascript)
+    # Code scanning is unavailable on free private repos; skip instead of failing every PR.
+    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
       security-events: write
