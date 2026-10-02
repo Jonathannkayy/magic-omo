@@ -84,7 +84,7 @@ test('--dry-run writes nothing anywhere (full fs snapshot)', async (t) => {
   const r = await cli(['setup', '--dry-run'], w);
   assert.equal(r.code, 0, r.out + r.err);
   assert.match(r.out, /Dry run complete/);
-  assert.match(r.out, /\+ append .* to extensions/);
+  assert.match(r.out, /\+ add extensions = /);
   assert.deepEqual(snapshot(w.base), before);
 });
 
