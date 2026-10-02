@@ -6,7 +6,9 @@ import { main } from '../src/cli.js';
 import { parse } from '../src/jsonc.js';
 import { applySetup, planSetup, uninstall } from '../src/install.js';
 import { allPaths } from '../src/paths.js';
-import { PIN, capture, makeWorld, snapshot, sortedKeys } from './helpers.js';
+import { OTHER_PIN, PIN, capture, makeWorld, snapshot, sortedKeys } from './helpers.js';
+
+const reEsc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 async function cli(argv, w) {
   const io = capture();
@@ -156,7 +158,7 @@ test('npm is invoked with --ignore-scripts --save-exact for the exact pin', asyn
   t.after(w.cleanup);
   await cli(['setup', '--yes'], w);
   const calls = readFileSync(path.join(w.base, 'npm-calls.log'), 'utf8');
-  assert.match(calls, /install --ignore-scripts --save-exact .*@cortexkit\/pi-magic-context@0\.43\.2/);
+  assert.match(calls, new RegExp(`install --ignore-scripts --save-exact .*@cortexkit/pi-magic-context@${reEsc(PIN.magic_context)}(\\s|$)`));
 });
 
 test('install record merges later additions; uninstall without record removes only our path', async (t) => {
@@ -207,7 +209,7 @@ test('setup refuses when the shared DB schema is newer than every pin', { skip: 
   assert.equal(readFileSync(w.settingsFile, 'utf8'), s0);
 });
 
-test('a v91 database selects the 0.44.4 pin instead of failing', { skip: !process.features?.typescript && false }, async (t) => {
+test('a database at the non-default pin\'s fence selects that pin instead of failing', { skip: !OTHER_PIN && 'compat.json has a single pin' }, async (t) => {
   let sqlite;
   try {
     sqlite = await import('node:sqlite');
@@ -220,12 +222,23 @@ test('a v91 database selects the 0.44.4 pin instead of failing', { skip: !proces
   const dir = path.join(w.home, '.local', 'share', 'cortexkit', 'magic-context');
   (await import('node:fs')).mkdirSync(dir, { recursive: true });
   const db = new sqlite.DatabaseSync(path.join(dir, 'context.db'));
-  db.exec('create table schema_migrations(version integer); insert into schema_migrations values (91);');
+  db.exec(`create table schema_migrations(version integer); insert into schema_migrations values (${Number(OTHER_PIN.schema_fence)});`);
   db.close();
   const r = await cli(['setup', '--yes'], w);
   assert.equal(r.code, 0, r.out + r.err);
-  assert.match(r.out, /pin: Magic Context 0\.44\.4/);
-  const ext = allPaths(w.env, '0.44.4').extension;
+  assert.match(r.out, new RegExp(`pin: Magic Context ${reEsc(OTHER_PIN.magic_context)}\\b`));
+  const ext = allPaths(w.env, OTHER_PIN.magic_context).extension;
   assert.ok(JSON.parse(readFileSync(w.settingsFile, 'utf8')).extensions.includes(ext));
-  assert.equal(JSON.parse(readFileSync(allPaths(w.env, '0.44.4').record, 'utf8')).magic_context, '0.44.4');
+  assert.equal(JSON.parse(readFileSync(allPaths(w.env, OTHER_PIN.magic_context).record, 'utf8')).magic_context, OTHER_PIN.magic_context);
+});
+
+test('setup --mc <non-default pin> refuses an integrity mismatch before touching OMO', { skip: !OTHER_PIN && 'compat.json has a single pin' }, async (t) => {
+  const w = makeWorld({ integrity: 'sha512-AAAA' });
+  t.after(w.cleanup);
+  const s0 = readFileSync(w.settingsFile, 'utf8');
+  const r = await cli(['setup', '--yes', '--mc', OTHER_PIN.magic_context], w);
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(r.err, /integrity mismatch: got sha512-AAAA/);
+  assert.match(readFileSync(path.join(w.base, 'npm-calls.log'), 'utf8'), new RegExp(`pi-magic-context@${reEsc(OTHER_PIN.magic_context)}(\\s|$)`));
+  assert.equal(readFileSync(w.settingsFile, 'utf8'), s0);
 });
