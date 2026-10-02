@@ -9,6 +9,8 @@ the tag; otherwise GitHub generates them from the merged pull requests.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-02
+
 ### Added
 
 - Multiple Magic Context pins side by side (`compat.json` `pins[]`, one vendor lockfile
