@@ -6,7 +6,16 @@ import { findNode, parse, parseTree, revertEdit, setPath, appendElement, insertM
 
 export const OMO_AUTO_MEMORY_SUBSYSTEMS = Object.freeze(['facts', 'recall', 'nudge', 'reflection', 'dream']);
 
-/** settings.json: extensions[] += ext, compaction.enabled = false (siblings preserved). */
+/**
+ * settings.json: extensions[] += ext. Native compaction is deliberately LEFT AS IS.
+ *
+ * Unlike upstream's OMP setup, OMO Native must keep `compaction.enabled` on: Senpi's
+ * resume admission (`sdk.js`, ModelUsabilityBudgetError) counts the full saved
+ * transcript and only has a recovery path when compaction is enabled. With it off, a
+ * session whose transcript outgrew the window refuses every turn. With it on, Magic
+ * Context still owns the window: its `session_before_compact` handler cancels native
+ * compaction (verified: 18-turn run to 96% with zero native compaction entries).
+ */
 export function planSettings(text, ext) {
   const edits = [];
   const notes = [];
@@ -27,13 +36,9 @@ export function planSettings(text, ext) {
     notes.push('extension path already present in extensions[]');
   }
   const comp = findNode(parseTree(text), ['compaction']);
-  if (comp && comp.type !== 'object') throw new Error('settings "compaction" is not an object; refusing to guess');
-  const r = setPath(text, ['compaction', 'enabled'], false);
-  if (r.edit) {
-    text = r.text;
-    edits.push(r.edit);
-  } else {
-    notes.push('compaction.enabled already false');
+  const compEnabled = comp && comp.type === 'object' ? toValue(comp).enabled : undefined;
+  if (compEnabled === false) {
+    notes.push('compaction.enabled is false: OMO cannot recover a resumed session that outgrew the window. Consider setting it back to true (doctor warns).');
   }
   return { text, edits, notes };
 }

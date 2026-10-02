@@ -119,18 +119,34 @@ test('schemaVersion falls back to sqlite3 CLI or skips cleanly', { skip: !sqlite
   assert.ok(cli.version === 90 || cli.skipped, JSON.stringify(cli));
 });
 
-test('conflict detection: native compaction re-enabled and duplicate MC loaders FAIL', async (t) => {
+test('doctor: native compaction left ON passes; turned OFF warns (resume deadlock)', async (t) => {
   const w = makeWorld();
   t.after(w.cleanup);
   const io = capture();
   await main(['setup', '--yes'], { env: w.env, ...io });
   const s = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
-  s.compaction.enabled = true;
+  assert.equal(s.compaction.enabled, true, 'setup must NOT disable native compaction');
+  assert.equal(byId(await runDoctor({ env: w.env }), 'compaction')[0].status, 'PASS');
+
+  // A user (or upstream's OMP guidance) turning it off is a WARN, not a silent pass:
+  // Senpi's resume admission then has no recovery path for an oversized transcript.
+  s.compaction.enabled = false;
+  writeFileSync(w.settingsFile, JSON.stringify(s, null, 2));
+  const warned = byId(await runDoctor({ env: w.env }), 'compaction')[0];
+  assert.equal(warned.status, 'WARN');
+  assert.match(warned.detail, /resume/i);
+});
+
+test('conflict detection: duplicate Magic Context loaders FAIL', async (t) => {
+  const w = makeWorld();
+  t.after(w.cleanup);
+  const io = capture();
+  await main(['setup', '--yes'], { env: w.env, ...io });
+  const s = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
   s.packages.push({ source: 'npm:@cortexkit/pi-magic-context@0.44.0' });
   writeFileSync(w.settingsFile, JSON.stringify(s, null, 2));
   mkdirSync(path.join(w.home, '.omo', 'agent', 'extensions', 'magic-context'), { recursive: true });
   const r = await runDoctor({ env: w.env });
-  assert.equal(byId(r, 'compaction')[0].status, 'FAIL');
   assert.equal(byId(r, 'double-load')[0].status, 'FAIL');
   assert.equal(otherMagicContextLoaders(s, allPaths(w.env)).length, 2);
 });

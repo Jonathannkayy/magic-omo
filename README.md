@@ -27,7 +27,7 @@ Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Nati
 
 Magic Context gives coding agents managed context with no hard wall: background compaction into a searchable history, durable project memory, notes, and a dreamer. OpenCode and Hermes can already share one Magic Context store. OMO Native can load Pi extensions, but making Magic Context work there safely has a few traps:
 
-- **Two context managers fight.** OMO's native compaction has to be turned off while Magic Context owns the window.
+- **Two context managers would fight, but OMO's cannot simply be switched off.** Magic Context owns the window; OMO's `compaction.enabled` must nevertheless stay **on** (see [why](#why-native-compaction-stays-on)).
 - **Two automatic memory systems duplicate context.** OMO's own facts, recall, nudge, reflection and dream subsystems inject memory next to Magic Context's.
 - **Historian models silently fail to resolve** (see [gotchas](#historian-model-gotchas)).
 - **Mixed versions on one DB break everyone.** Every process that shares `context.db` must run the same Magic Context series.
@@ -72,7 +72,7 @@ Every row is backed up first. Each file is written atomically (temp file plus re
 |---|---|---|---|
 | `~/.local/share/magic-omo/vendor/` | `npm install --ignore-scripts --save-exact @cortexkit/pi-magic-context@0.43.2`, integrity checked against the pin, then frozen with `SHA256SUMS` | Same bytes on every machine; nothing global | always |
 | `$OMO_AGENT_DIR/settings.json` | append the **absolute local path** of the pinned package to `extensions[]` | Senpi's update checker skips `local` and pinned sources, so `omo update` never moves it | always |
-| `$OMO_AGENT_DIR/settings.json` | `compaction.enabled = false`; sibling keys such as `summarizationMaxDurationMs` are preserved | Magic Context owns the context window (same as upstream OMP setup) | always |
+| `$OMO_AGENT_DIR/settings.json` | **nothing else** — `compaction.enabled` is deliberately left as it is | OMO needs its own compaction flag on to recover an oversized resumed session; Magic Context still cancels every native compaction ([why](#why-native-compaction-stays-on)) | never changed |
 | `~/.omo/omo.jsonc` | `"[native]".memory.{facts,recall,nudge,reflection,dream}.enabled = false`, merged in with comments preserved | One automatic memory injector, not two | on (`--keep-omo-memory` to skip) |
 | `~/.config/cortexkit/magic-context.jsonc` | `todowrite.enabled = false` | OMO ships its own `todo` tool | **asked**, because this file is shared with every host |
 
@@ -82,7 +82,7 @@ Every row is backed up first. Each file is written atomically (temp file plus re
 
 | Concern | Owner after setup | Notes |
 |---|---|---|
-| Context window / compaction | **Magic Context** | OMO `compaction.enabled=false` |
+| Context window / compaction | **Magic Context** | OMO's `compaction.enabled` stays on as a safety net; MC cancels native compaction on every turn ([why](#why-native-compaction-stays-on)) |
 | Automatic memory (facts extraction, recall sidecar, nudges, reflection, dream) | **Magic Context** | OMO `[native].memory.<x>.enabled=false`. Verified in a sandbox: OMO wrote no facts-queue, recall or reflection files |
 | Curated memory: explicit `memory` tool, soul/persona | **OMO** (unchanged) | An explicit "remember X" still commits to OMO's memory repo |
 | `memory.enabled`, search, sync | **OMO** (unchanged) | Never touched |
@@ -91,6 +91,38 @@ Every row is backed up first. Each file is written atomically (temp file plus re
 
 <img src="docs/assets/ctx-search.png" alt="ctx_search inside OMO returning a memory originally written from OpenCode" width="760">
 <!-- SCREENSHOT: ctx-search.png — OMO Native tool call `ctx_search` with its result list showing a memory/compartment hit whose origin is a different harness (OpenCode or Hermes), proving the shared store. -->
+
+## Why native compaction stays on
+
+Upstream's OMP setup disables the host's native compaction (`compaction.enabled=false`), and
+that is the right call there. On OMO Native it creates a **resume deadlock**, so `magic-omo`
+deliberately leaves the flag alone.
+
+Senpi admits a session by projecting the *stored transcript* against the model window
+(`projectModelUsabilityBudget`). Reopening a session that grew past the window raises:
+
+```
+ModelUsabilityBudgetError: Model "anthropic-subscription/claude-haiku-4-5" cannot resume:
+target context window 200000 tokens is 4683 tokens short of the 204683-token requirement
+(live context 101934, system prompt 8283, active tool schemas 14082, output reserve 64000,
+ compaction reserve 0, speculation lead 0, safety margin 16384 [anthropic]).
+```
+
+The recovery path for that error — slice the transcript and continue — is gated on the host's
+own compaction flag (`sdk.js`: `!session.settingsManager.getCompactionEnabled()` rethrows).
+Turn the flag off and the session refuses **every** turn, permanently. Magic Context's own
+reclaim does not help: it shrinks what is *sent*, while the admission check reads what is
+*stored*.
+
+Leaving it on costs nothing, because Magic Context still owns the window: its
+`session_before_compact` handler cancels native compaction (`session_before_compact:
+cancelling — magic-context owns compaction`).
+
+Verified in an isolated sandbox on a 200K-window model, with Magic Context loaded and the
+flag on: 18 consecutive turns of ~28 KB pasted notes each, usage climbing to **96.0%**, then
+Magic Context's own historian fired (`reason=force_band`) and published a compartment —
+with **zero** native compaction entries written to the session. With the flag off, the same
+workload wedged at turn 15 and every later turn failed.
 
 ## Historian model gotchas
 
@@ -132,7 +164,7 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
   PASS  OpenCode Magic Context: 0.43.2 via package.json (@cortexkit/opencode-magic-context) (bridge 0.43.2)
   PASS  magic-hermes: supported series 0.43 (bridge 0.43)
   PASS  Bridge loaded by OMO: extensions[] contains ~/.local/share/magic-omo/vendor/node_modules/@cortexkit/pi-magic-context
-  PASS  OMO native compaction: compaction.enabled=false (Magic Context owns the window)
+  PASS  OMO native compaction setting: compaction.enabled is on (recovery path kept; Magic Context cancels native compaction via session_before_compact)
   PASS  OMO automatic memory: [native].memory facts/recall/nudge/reflection/dream are off; curated memory untouched
   INFO  Model historian.pi.model: claude-sonnet-5-5 — bare id …; verify with --probe-models
   PASS  Magic Context todowrite: disabled (OMO ships its own `todo` tool)

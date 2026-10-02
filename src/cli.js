@@ -19,7 +19,7 @@ Usage:
 
 setup      Installs the pinned @cortexkit/pi-magic-context ${PIN.magic_context} into magic-omo's own
            vendor dir (npm --ignore-scripts, integrity-checked), adds it to OMO's extensions[],
-           sets compaction.enabled=false, turns off OMO's AUTOMATIC memory subsystems in
+           turns off OMO's AUTOMATIC memory subsystems in
            "[native]".memory (opt out: --keep-omo-memory), and OFFERS todowrite.enabled=false
            in the shared Magic Context config (asks first; --todowrite / --no-todowrite to decide
            non-interactively). Every change is backed up and revertible by \`uninstall\`.

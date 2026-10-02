@@ -149,8 +149,10 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
   } else {
     add('bridge', bs.live ? 'PASS' : 'INFO', 'Bridge loaded by OMO', bs.live ? `extensions[] contains ${paths.extension}` : 'not installed (extensions[] does not reference the pinned runtime)', { data: { live: bs.live } });
     if (bs.live) {
-      add('compaction', bs.compactionEnabled === false ? 'PASS' : 'FAIL', 'OMO native compaction',
-        bs.compactionEnabled === false ? 'compaction.enabled=false (Magic Context owns the window)' : 'native compaction is ON next to Magic Context: two context managers fight. Re-run `magic-omo setup`.', { hard: bs.compactionEnabled !== false });
+      add('compaction', bs.compactionEnabled === false ? 'WARN' : 'PASS', 'OMO native compaction setting',
+        bs.compactionEnabled === false
+          ? 'compaction.enabled=false: OMO\'s resume check has no recovery path, so a session that outgrew the window refuses every turn. Set compaction.enabled=true; Magic Context still cancels native compaction.'
+          : 'compaction.enabled is on (recovery path kept; Magic Context cancels native compaction via session_before_compact)');
     }
     const others = otherMagicContextLoaders(bs.settings, paths);
     if (others.length) add('double-load', 'FAIL', 'Duplicate Magic Context loaders', others.join('; '), { hard: true });
