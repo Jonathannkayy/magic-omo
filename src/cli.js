@@ -47,15 +47,27 @@ MAGIC_OMO_HOME overrides magic-omo's own data dir (default $XDG_DATA_HOME/magic-
 /** Flags that take a value, as `--mc 0.44.4` or `--mc=0.44.4`. */
 export const VALUE_FLAGS = new Set(['mc']);
 
+export class UsageError extends Error {}
+
 export function parseArgs(argv) {
   const flags = {};
   const pos = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
-      const [k, v] = a.slice(2).split('=');
-      if (v === undefined && VALUE_FLAGS.has(k) && argv[i + 1] && !argv[i + 1].startsWith('-')) {
-        flags[k] = argv[++i];
+      const eq = a.indexOf('=');
+      const k = eq === -1 ? a.slice(2) : a.slice(2, eq);
+      const v = eq === -1 ? undefined : a.slice(eq + 1);
+      if (VALUE_FLAGS.has(k)) {
+        // A value-taking flag never falls back to "unset": a malformed override must not
+        // silently select something other than what was asked for.
+        let val = v;
+        if (val === undefined) {
+          const next = argv[i + 1];
+          if (next !== undefined && !next.startsWith('-')) val = argv[++i];
+        }
+        if (val === undefined || !val.trim()) throw new UsageError(`--${k} needs a value (e.g. --${k} <version>)`);
+        flags[k] = val.trim();
       } else flags[k] = v ?? true;
     } else if (a === '-y') flags.yes = true;
     else if (a === '-h') flags.help = true;
@@ -96,13 +108,14 @@ async function cmdSetup(flags, env, io) {
   const base = allPaths(env);
   const record = readRecord(base);
   const sv = await schemaVersion(base.db, env);
-  const sel = selectPin(env, collectPeers(env, { dbSchema: typeof sv.version === 'number' ? sv.version : undefined }), { record, override: mc });
+  const sel = selectPin(env, collectPeers(env, { db: sv }), { record, override: mc });
   if (sel.error) {
     io.err(`setup refused — ${sel.detail}`);
     return 2;
   }
   const pin = sel.pin;
   io.out(`  pin: ${describeSelection(sel)}`);
+  for (const w of sel.warnings ?? []) io.err(`  WARNING: ${w}`);
 
   const pre = await runDoctor({ env, fullVendor: false, mc });
   const blockers = pre.checks.filter((c) => c.status === 'FAIL' && SETUP_BLOCKERS.has(c.id));
@@ -186,8 +199,14 @@ async function cmdStatus(flags, env, io) {
   const r = await runDoctor({ env, fullVendor: false });
   const s = {
     live: r.live,
-    magic_context: r.pin.magic_context,
+    live_paths: r.live_paths ?? [],
+    // Never present doctor's stand-in pin as "selected" when selection failed.
+    magic_context: r.pin?.magic_context ?? null,
     pin_reason: r.pin_reason,
+    pin_error: r.pin_error ?? null,
+    pin_error_detail: r.pin_error_detail ?? null,
+    pin_warnings: r.pin_warnings ?? [],
+    recorded_magic_context: rec?.magic_context ?? null,
     record: rec ? paths.record : null,
     installed_at: rec?.installed_at ?? null,
     changed_files: rec?.files.map((f) => ({ file: f.file, edits: f.edits.length })) ?? [],
@@ -196,8 +215,11 @@ async function cmdStatus(flags, env, io) {
   };
   if (flags.json) io.out(JSON.stringify(s, null, 2));
   else {
-    io.out(`bridge: ${s.live ? 'LIVE (new OMO sessions load Magic Context)' : 'not installed'}`);
-    io.out(`selected Magic Context: ${s.magic_context}${s.pin_reason ? ` (${s.pin_reason})` : ''}`);
+    io.out(`bridge: ${s.live ? `LIVE (new OMO sessions load Magic Context: ${s.live_paths.join(', ')})` : 'not installed'}`);
+    if (s.pin_error) io.out(`selected Magic Context: NONE — pin selection failed (${s.pin_error}): ${s.pin_error_detail}`);
+    else io.out(`selected Magic Context: ${s.magic_context}${s.pin_reason ? ` (${s.pin_reason})` : ''}`);
+    for (const w of s.pin_warnings) io.out(`  WARNING: ${w}`);
+    if (s.recorded_magic_context && s.recorded_magic_context !== s.magic_context) io.out(`recorded install: Magic Context ${s.recorded_magic_context}`);
     if (rec) {
       io.out(`installed: ${s.installed_at}  record: ${s.record}`);
       for (const f of s.changed_files) io.out(`  ${f.file}: ${f.edits} recorded change(s)`);
@@ -242,7 +264,15 @@ async function cmdGuard(sub, flags, env, io) {
 
 export async function main(argv = process.argv.slice(2), { env = process.env, ...ioOpts } = {}) {
   const io = makeIO(ioOpts);
-  const { cmd, sub, flags } = parseArgs(argv);
+  let parsed;
+  try {
+    parsed = parseArgs(argv);
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    io.err(`magic-omo: ${e.message}`);
+    return 2;
+  }
+  const { cmd, sub, flags } = parsed;
   try {
     if (flags.version || cmd === 'version') {
       io.out(PKG.version);
