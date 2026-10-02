@@ -16,7 +16,9 @@ do, and how you reach a human.
 ## Merge rules (enforced by branch protection, not by goodwill)
 
 - Nobody pushes to `main`. Everything lands through a pull request.
-- Required checks: the full CI matrix, CodeQL, and `magic-omo/review`. Only the maintainer sets that last one.
+- Required checks: the full CI matrix, lint, and `magic-omo/review` (only the maintainer sets that last one). CodeQL
+  becomes a required check automatically when the repository is public; GitHub doesn't offer code scanning on free
+  private repositories, so until then it is skipped.
 - Changes to **maintainer-only files** are never merged by the bot, even when the review passes. These are CI/CD workflows,
   release config, security policy, licensing, dependency manifests and lockfiles, version pins, build scripts, and this file.
   The owner approves those personally.
