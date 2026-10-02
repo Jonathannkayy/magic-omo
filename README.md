@@ -100,7 +100,7 @@ Requirements: Node.js ≥ 20, OMO Native, and `npm`, which is used once to fetch
 
 Magic Context moves fast, and every process that shares one `context.db` has to move together. magic-omo is built so that is never your problem:
 
-- **Several Magic Context versions, side by side.** magic-omo ships a verified pin for each supported series, each with its own lockfile and its own vendored tree. Nothing is downloaded twice, and switching back is instant.
+- **Several Magic Context versions, side by side.** magic-omo ships a pinned, lockfile-integrity-checked runtime for each supported series, each in its own vendored tree. Which OMO combinations are end-to-end verified is spelled out in the compatibility table below. Nothing is downloaded twice, and switching back is instant.
 - **Setup picks the version your machine already runs.** Before touching anything, setup reads the Magic Context plugin OpenCode loads, the series magic-hermes declares, and the schema version of the shared database, then installs the pin that matches them. It never silently jumps to a newer series — a newer build migrates the shared database forward and would lock your other hosts out. If your hosts disagree with each other, setup refuses and tells you exactly who runs what.
 - **Upstream is checked every day.** A scheduled contract check re-verifies, statically and without a single model call, that Senpi still dispatches `session_before_compact`, still skips local and pinned sources so `omo update` cannot move the bridge, that OMO still honours the agent-dir environment variables and the `[native].memory` keys magic-omo switches off, and that the Magic Context build still loads as a Pi extension with the schema fence we recorded.
 - **New upstream releases are tested end to end before they are pinned.** The maintainer bot runs the real sandbox — isolated home, isolated store, a snapshot of the database — against the new combination, and only then marks the row verified, updates the compatibility table and ships a release.
@@ -231,7 +231,7 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
 | Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |
 |---|---|---|---|---|
 | `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | — (not yet) |
-| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 |
+| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 / senpi 2026.9.30 |
 
 <details>
 <summary>Full verification matrix</summary>

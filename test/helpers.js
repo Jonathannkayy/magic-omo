@@ -12,6 +12,8 @@ export const ROOT = path.resolve(TEST_DIR, '..');
 export const COMPAT = JSON.parse(readFileSync(path.join(ROOT, 'compat.json'), 'utf8'));
 /** The pin setup picks in a peer-less world (compat.json default_pin). */
 export const PIN = COMPAT.pins.find((p) => p.magic_context === COMPAT.default_pin) ?? COMPAT.pins[0];
+/** A pin setup does NOT pick by default (undefined while compat.json has a single pin). */
+export const OTHER_PIN = COMPAT.pins.find((p) => p.magic_context !== PIN.magic_context);
 const VERIFIED = COMPAT.matrix.find((r) => r.magic_context === PIN.magic_context && r.status === 'verified') ?? COMPAT.matrix[0];
 
 function sh(file, body) {
@@ -49,8 +51,18 @@ export function makeWorld(opts = {}) {
   sh(path.join(bin, 'omo'), `echo "$@" >> "${path.join(base, 'omo-calls.log')}"\ncat "${path.join(base, 'probe-output.txt')}"`);
 
   // Fake `npm`: `root -g` and `install` of the pinned package from a local fixture.
+  // The default pin's values, or the caller's override. Non-default pins get their own
+  // compat.json values via the case arms below, but ONLY for the fields the caller did not
+  // override: a test passing `integrity`/`fence` must see it for whichever pin is installed.
   const fence = opts.fence ?? PIN.schema_fence;
   const integrity = opts.integrity ?? PIN.integrity;
+  const pinArm = (p) => [
+    opts.fence === undefined ? `fence=${p.schema_fence};` : '',
+    opts.integrity === undefined ? `integrity='${p.integrity}';` : '',
+  ].join(' ').trim();
+  const arms = COMPAT.pins
+    .filter((p) => p.magic_context !== PIN.magic_context && pinArm(p))
+    .map((p) => `      ${p.magic_context}) ${pinArm(p)};`); // each assignment ends in ';', so this closes the arm with ';;'
   sh(path.join(bin, 'npm'), `
 case "$1" in
   root) echo "${path.join(base, 'global', 'lib', 'node_modules')}"; exit 0;;
@@ -61,9 +73,7 @@ case "$1" in
     [ -n "$spec" ] || exit 1
     fence=${fence}
     integrity='${integrity}'
-    case "$spec" in
-${COMPAT.pins.filter((p) => p.magic_context !== PIN.magic_context).map((p) => `      ${p.magic_context}) fence=${p.schema_fence}; integrity='${p.integrity}';;`).join('\n')}
-    esac
+${arms.length ? `    case "$spec" in\n${arms.join('\n')}\n    esac` : ''}
     d=node_modules/@cortexkit/pi-magic-context
     mkdir -p "$d/dist"
     printf '{"name":"@cortexkit/pi-magic-context","version":"%s"}' "$spec" > "$d/package.json"

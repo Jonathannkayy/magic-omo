@@ -40,7 +40,7 @@ jobs:
       - name: Release notes source
         id: notes
         run: |
-          if [ -f repo/RELEASE_NOTES.md ]; then
+          if [ -s repo/RELEASE_NOTES.md ]  # non-empty; an empty file would publish a blank body; then
             echo "body_path=repo/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
             echo "generate=false" >> "$GITHUB_OUTPUT"
           else

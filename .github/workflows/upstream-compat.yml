@@ -41,6 +41,12 @@ jobs:
               }
               out.push({ name: `mc ${pin.magic_context} x omo latest`, mc: pin.magic_context, omo: "latest", gating: false });
             }
+            if (!out.length) {
+              // An empty matrix makes GitHub skip the contract job and the run stays green.
+              console.log("::error file=compat.json::no verified pin/omo combination in compat.json: nothing to contract-check");
+              process.exit(1);
+            }
+            console.log(`${out.length} combination(s):\n${out.map((o) => `  ${o.name}${o.gating ? "" : " (advisory)"}`).join("\n")}`);
             require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, `combos=${JSON.stringify(out)}\n`);
           '
   contract:

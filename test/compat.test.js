@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { renderDoc, spliceReadme } from '../scripts/gen-compat.js';
+import { renderDoc, renderPins, spliceReadme } from '../scripts/gen-compat.js';
 import { guardTargets } from '../src/guard.js';
 import { ROOT, makeWorld } from './helpers.js';
 
@@ -12,6 +12,23 @@ test('docs/COMPATIBILITY.md and README block match compat.json', () => {
   assert.equal(readFileSync(path.join(ROOT, 'docs', 'COMPATIBILITY.md'), 'utf8'), renderDoc(compat));
   const readme = readFileSync(path.join(ROOT, 'README.md'), 'utf8');
   assert.equal(spliceReadme(readme, compat), readme);
+});
+
+test('pin table names omo-ai AND senpi for every verified combination', () => {
+  const fake = {
+    default_pin: '9.9.9',
+    pins: [{ package: 'p', magic_context: '9.9.9', schema_fence: 1, lockfile: 'l', integrity: 'i' }],
+    matrix: [
+      { magic_context: '9.9.9', omo: '1.2.3', senpi: '2026.1.1', status: 'verified' },
+      { magic_context: '9.9.9', omo: '1.2.4', senpi: '2026.1.2', status: 'unverified' },
+    ],
+  };
+  const row = renderPins(fake).split('\n')[2];
+  assert.match(row, /omo-ai 1\.2\.3 \/ senpi 2026\.1\.1 \|$/);
+  assert.doesNotMatch(row, /1\.2\.4/);
+  for (const r of compat.matrix.filter((x) => x.status === 'verified')) {
+    assert.ok(renderPins(compat).includes(`omo-ai ${r.omo} / senpi ${r.senpi}`), `${r.omo}/${r.senpi}`);
+  }
 });
 
 test('every pin agrees with its vendor manifests, newest first, default_pin exists', () => {
@@ -36,12 +53,28 @@ test('every pin agrees with its vendor manifests, newest first, default_pin exis
   }
 });
 
-function cmpVersion(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
+/** Compare strict X.Y.Z versions; throws on anything else so a malformed pin can't sort silently. */
+export function cmpVersion(a, b) {
+  const parse = (v) => {
+    const m = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(String(v));
+    if (!m) throw new Error(`not a plain X.Y.Z version: ${JSON.stringify(v)}`);
+    return m.slice(1).map(Number);
+  };
+  const pa = parse(a);
+  const pb = parse(b);
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
   return 0;
 }
+
+test('cmpVersion orders numerically and rejects malformed versions', () => {
+  assert.ok(cmpVersion('0.44.4', '0.43.2') > 0);
+  assert.ok(cmpVersion('0.43.10', '0.43.9') > 0);
+  assert.ok(cmpVersion('1.0.0', '0.99.99') > 0);
+  assert.equal(cmpVersion('0.43.2', '0.43.2'), 0);
+  for (const bad of ['0.44', '0.44.4.1', '0.44.x', '0.44.4-beta.1', 'v0.44.4', '', undefined]) {
+    assert.throws(() => cmpVersion(bad, '0.43.2'), /not a plain X\.Y\.Z/, String(bad));
+  }
+});
 
 test('no hardcoded home paths in shipped source', () => {
   for (const f of ['src/paths.js', 'src/doctor.js', 'src/install.js', 'src/guard.js', 'src/vendor.js', 'src/omo.js', 'src/cli.js']) {

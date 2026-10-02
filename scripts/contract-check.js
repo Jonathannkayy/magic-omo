@@ -9,11 +9,11 @@
 // Prints {ok, checks:[{id, ok, detail}], versions} as JSON and exits 1 when a
 // check fails (2 on a usage/setup error).
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { senpiContract } from '../src/omo.js';
+import { senpiContract, which } from '../src/omo.js';
 
 export function parseArgs(argv) {
   const out = { keep: false };
@@ -62,20 +62,40 @@ function jsFiles(dir, depth = 4, out = []) {
   return out;
 }
 
+/**
+ * Resolve npm the same way the installer does (MAGIC_OMO_NPM, else a PATH lookup that
+ * honours PATHEXT on Windows, where npm is `npm.cmd`), and say how to spawn it: since
+ * the CVE-2024-27980 fix Node refuses to spawn a .cmd/.bat without a shell.
+ */
+export function resolveNpm(env = process.env, platform = process.platform) {
+  const bin = env.MAGIC_OMO_NPM || which('npm', env);
+  if (!bin) return undefined;
+  return { bin, shell: platform === 'win32' && /\.(cmd|bat)$/i.test(bin) };
+}
+
+// Only plain npm version/tag specs reach the command line (they may go through a shell on Windows).
+const SAFE_SPEC = /^[\w.^~<>=*+-]+$/;
+
 /** Install `spec` into a temp dir with --ignore-scripts and return the package root. */
 function installPackage(name, spec, tmp) {
-  if (spec.includes('/') || spec.startsWith('.') || existsSync(spec)) {
+  if (spec.includes('/') || spec.includes('\\') || spec.startsWith('.') || existsSync(spec)) {
     const root = path.resolve(spec);
     if (!existsSync(path.join(root, 'package.json'))) throw new Error(`${root} has no package.json`);
     return { root, source: 'path' };
   }
+  if (!SAFE_SPEC.test(spec)) throw new Error(`refusing unusual version spec for ${name}: ${JSON.stringify(spec)}`);
+  const npm = resolveNpm();
+  if (!npm) throw new Error('npm not found on PATH (set MAGIC_OMO_NPM to override)');
   const dir = path.join(tmp, name.replace('/', '-'));
-  writeFileSync(path.join(tmp, '.keep'), '');
-  spawnSync('mkdir', ['-p', dir]);
+  mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'contract-check', version: '0.0.0', private: true }));
-  const r = spawnSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=peer', `${name}@${spec}`], {
-    cwd: dir, encoding: 'utf8', timeout: 900_000,
-  });
+  const args = ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--omit=peer', `${name}@${spec}`];
+  const opts = { cwd: dir, encoding: 'utf8', timeout: 900_000 };
+  // Every arg is a fixed flag or a SAFE_SPEC-checked `name@spec`, so the shell line needs no escaping.
+  const r = npm.shell
+    ? spawnSync(`"${npm.bin}" ${args.join(' ')}`, { ...opts, shell: true })
+    : spawnSync(npm.bin, args, opts);
+  if (r.error) throw new Error(`npm install ${name}@${spec} could not start: ${r.error.message}`);
   if (r.status !== 0) throw new Error(`npm install ${name}@${spec} failed: ${(r.stderr || r.stdout || '').trim().slice(-400)}`);
   return { root: path.join(dir, 'node_modules', ...name.split('/')), source: `npm ${spec}` };
 }
@@ -83,23 +103,106 @@ function installPackage(name, spec, tmp) {
 /** The five OMO automatic-memory sub-keys magic-omo switches off. */
 export const MEMORY_SUBKEYS = ['facts', 'recall', 'nudge', 'reflection', 'dream'];
 
+const ID = '[A-Za-z_$][\\w$]*';
+const esc = (id) => id.replace(/\$/g, '\\$');
+
+/**
+ * The `{...}` object literal that starts at text[open] (which must be `{`), with
+ * string literals skipped so braces inside them do not count. Undefined if unbalanced.
+ */
+export function objectLiteralAt(text, open) {
+  if (text[open] !== '{') return undefined;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      for (i++; i < text.length && text[i] !== ch; i++) if (text[i] === '\\') i++;
+      continue;
+    }
+    if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return text.slice(open, i + 1);
+  }
+  return undefined;
+}
+
+/** Top-level keys of an object literal (nested objects/calls/arrays skipped). */
+export function topLevelKeys(obj) {
+  const keys = [];
+  let depth = 0;
+  let expectKey = true;
+  for (let i = 1; i < obj.length - 1; i++) {
+    const ch = obj[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      for (i++; i < obj.length && obj[i] !== ch; i++) if (obj[i] === '\\') i++;
+      continue;
+    }
+    if ('{[('.includes(ch)) depth++;
+    else if ('}])'.includes(ch)) depth--;
+    else if (depth === 0 && ch === ',') expectKey = true;
+    else if (depth === 0 && expectKey && /[A-Za-z_$]/.test(ch)) {
+      const m = /^([A-Za-z_$][\w$]*)\s*:/.exec(obj.slice(i));
+      if (m) keys.push(m[1]);
+      expectKey = false;
+    }
+  }
+  return keys;
+}
+
+/**
+ * The object literal of the schema assigned to `id` (`id=<factory>({...})`), choosing the
+ * definition closest before `near` (minifiers reuse short names across scopes), else the
+ * first one after it.
+ */
+export function schemaObjectFor(text, id, near) {
+  const re = new RegExp(`(?:^|[^\\w$.])${esc(id)}\\s*=\\s*${ID}\\s*\\(\\s*\\{`, 'g');
+  let before;
+  let after;
+  for (let m; (m = re.exec(text));) {
+    const open = m.index + m[0].length - 1;
+    if (open < near) before = open;
+    else if (after === undefined) after = open;
+  }
+  const at = before ?? after;
+  return at === undefined ? undefined : objectLiteralAt(text, at);
+}
+
 /**
  * Is `[native].memory.{facts,recall,nudge,reflection,dream}.enabled` still accepted?
- * The plugin bundle is minified, so identifiers are useless: we look for a strict
- * object schema region that declares `memory:<id>.optional()` and, nearby, all five
- * sub-keys, each on an object that carries an `enabled` field.
+ * The plugin bundle is minified, so identifiers are useless; we follow them instead:
+ * find `memory:<parent>.optional()`, resolve <parent>'s object schema, require each of
+ * the five sub-keys as `<key>:<child>.optional()|.default(`, then resolve EACH <child>'s
+ * object schema and require a top-level `enabled` member in it. A bundle that drops
+ * `enabled` from even one child fails.
  */
 export function memorySchemaEvidence(text) {
-  const anchor = /memory\s*:\s*[A-Za-z_$][\w$]*\s*\.optional\(\)/.exec(text);
-  if (!anchor) return { ok: false, detail: 'no `memory:<schema>.optional()` member found in the config schema' };
-  // Take a generous window around the anchor: the sub-schemas are defined next to it.
-  const from = Math.max(0, anchor.index - 20000);
-  const region = text.slice(from, anchor.index + 20000);
-  const missing = MEMORY_SUBKEYS.filter((k) => !new RegExp(`${k}\\s*:\\s*[A-Za-z_$][\\w$]*\\s*\\.(optional|default)\\(`).test(region));
-  const enabled = /enabled\s*:\s*[A-Za-z_$][\w$]*\(\)\s*\.(optional|default)\(/.test(region);
-  if (missing.length) return { ok: false, detail: `memory schema found but sub-keys missing: ${missing.join(', ')}` };
-  if (!enabled) return { ok: false, detail: 'memory sub-schemas found but no `enabled` field near them' };
-  return { ok: true, detail: `memory schema accepts ${MEMORY_SUBKEYS.join('/')} with an \`enabled\` field` };
+  const anchors = [...text.matchAll(new RegExp(`memory\\s*:\\s*(${ID})\\s*\\.optional\\(\\)`, 'g'))];
+  if (!anchors.length) return { ok: false, detail: 'no `memory:<schema>.optional()` member found in the config schema' };
+  // A bundle carries several memory schemas (the strict user-config one, a defaults one, per
+  // config variant). EVERY distinct one must still accept the keys: passing on the defaults
+  // schema says nothing about whether the user's `[native].memory.<key>.enabled` validates.
+  const seen = new Set();
+  const ok = [];
+  for (const a of anchors) {
+    if (seen.has(a[1])) continue;
+    seen.add(a[1]);
+    const parent = schemaObjectFor(text, a[1], a.index);
+    if (!parent) return { ok: false, detail: `memory schema \`${a[1]}\` has no resolvable object definition` };
+    const missing = [];
+    const noEnabled = [];
+    for (const k of MEMORY_SUBKEYS) {
+      const m = new RegExp(`(?:^|[{,])\\s*${k}\\s*:\\s*(${ID})\\s*\\.(?:optional|default)\\(`).exec(parent);
+      if (!m) {
+        missing.push(k);
+        continue;
+      }
+      const child = schemaObjectFor(text, m[1], a.index);
+      if (!child || !topLevelKeys(child).includes('enabled')) noEnabled.push(k);
+    }
+    if (missing.length) return { ok: false, detail: `memory schema \`${a[1]}\` is missing sub-keys: ${missing.join(', ')}` };
+    if (noEnabled.length) return { ok: false, detail: `memory schema \`${a[1]}\`: no \`enabled\` field on ${noEnabled.join(', ')}` };
+    ok.push(a[1]);
+  }
+  return { ok: true, detail: `${ok.length} memory schema(s) accept ${MEMORY_SUBKEYS.join('/')}, each with its own \`enabled\` field` };
 }
 
 export function checkOmo(omoRoot) {

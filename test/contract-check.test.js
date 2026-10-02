@@ -5,7 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { checkMagicContext, checkOmo, memorySchemaEvidence, parseArgs } from '../scripts/contract-check.js';
+import {
+  checkMagicContext, checkOmo, memorySchemaEvidence, objectLiteralAt, parseArgs, resolveNpm, topLevelKeys,
+} from '../scripts/contract-check.js';
 
 function tmpdir(t) {
   const d = mkdtempSync(path.join(process.env.MAGIC_OMO_TEST_TMP || os.tmpdir(), 'contract-test-'));
@@ -18,10 +20,41 @@ const write = (file, text) => {
   writeFileSync(file, text);
 };
 
-// A minified schema region shaped like omo-ai's real plugin bundle.
-const GOOD_SCHEMA = 'var Mu=nl({enabled:Xs().optional(),agent:Vs().min(1).optional(),reflection:ku.optional(),'
-  + 'nudge:zu.optional(),facts:Ou.optional(),dream:Iu.optional(),recall:Su.optional()}).strict();'
-  + 'x=nl({task:gd.optional(),memory:Mu.optional(),telemetry:Td.optional()}).strict();';
+// A minified schema region shaped like omo-ai 5.1.9's real plugin bundle
+// (plugin/extensions/omo.js): one child object schema per memory sub-key, a strict
+// user-config parent referencing them with .optional(), a defaults parent with
+// .default({...}), and the top-level config objects that carry `memory:<parent>.optional()`.
+const CHILD = {
+  reflection: 'Ya=Io({enabled:go().optional(),trigger:Va.optional(),merge:Mo(["auto","integration"]).optional()}).strict()',
+  nudge: 'ts=Io({enabled:go().optional(),every_user_turns:fo().int().min(1).optional()}).strict()',
+  facts: 'ns=Io({enabled:go().optional(),debounce_settles:fo().int().min(1).optional()}).strict()',
+  dream: 'rs=Io({enabled:go().optional(),idle_minutes:fo().int().min(0).optional()}).strict()',
+  recall: 'es=Io({enabled:go().optional(),max_items:fo().int().min(1).max(5).optional(),event_caps:Xa.optional()}).strict()',
+};
+const DEFAULT_CHILD = {
+  reflection: 'Fa=Io({enabled:go().default(!0),trigger:Da.default({step_count:25,on_compaction:!0})})',
+  nudge: 'Ua=Io({enabled:go().default(!0),every_user_turns:fo().int().min(1).default(10)})',
+  facts: 'Wa=Io({enabled:go().default(!0),debounce_settles:fo().int().min(1).default(4)})',
+  dream: 'Ha=Io({enabled:go().default(!0),idle_minutes:fo().int().min(0).default(30)})',
+  recall: 'Ba=Io({enabled:go().default(!0),max_items:fo().int().min(1).max(5).default(2)})',
+};
+function schema({ child = CHILD, defaults = DEFAULT_CHILD } = {}) {
+  return `var ${Object.values(defaults).join(',')},${Object.values(child).join(',')},`
+    + 'ls=Io({enabled:go().default(!0),agent:Li().min(1).default("auto"),reflection:Fa.default({enabled:!0,merge:"auto"}),'
+    + 'nudge:Ua.default({enabled:!0}),facts:Wa.default({enabled:!0,debounce_settles:4}),dream:Ha.default({enabled:!0}),recall:Ba.default({enabled:!0})}),'
+    + 'cs=Io({enabled:go().optional(),agent:Li().min(1).optional(),reflection:Ya.optional(),nudge:ts.optional(),'
+    + 'facts:ns.optional(),dream:rs.optional(),people:is.optional(),recall:es.optional()}).strict(),'
+    + 'il=Io({task:Fs.optional(),memory:cs.optional(),telemetry:Vs.optional()}).strict(),'
+    + 'al=Io({$schema:Li().optional(),memory:ls.optional(),telemetry:Ys.optional()}).strict();';
+}
+const GOOD_SCHEMA = schema();
+/** GOOD_SCHEMA with `enabled` removed from one strict (user-config) child schema. */
+const withoutEnabled = (key, table = 'child') => {
+  const src = table === 'child' ? CHILD : DEFAULT_CHILD;
+  const stripped = { ...src, [key]: src[key].replace(/enabled:go\(\)\.(optional\(\)|default\(!0\)),/, '') };
+  assert.notEqual(stripped[key], src[key]);
+  return schema(table === 'child' ? { child: stripped } : { defaults: stripped });
+};
 
 function fakeOmo(dir, { compactHook = true, localSkip = true, agentDir = true, schema = GOOD_SCHEMA, version = '5.1.9' } = {}) {
   const root = path.join(dir, 'omo-ai');
@@ -68,13 +101,50 @@ test('checkOmo catches each contract break individually', (t) => {
 });
 
 test('memory schema evidence survives minifier renames but notices a dropped sub-key', () => {
-  assert.equal(memorySchemaEvidence(GOOD_SCHEMA).ok, true);
-  // Same shape, different mangled identifiers.
-  assert.equal(memorySchemaEvidence(GOOD_SCHEMA.replace(/Mu|ku|zu|Ou|Iu|Su/g, (m) => `z${m}9`)).ok, true);
-  const dropped = memorySchemaEvidence(GOOD_SCHEMA.replace('dream:Iu.optional(),', ''));
+  assert.equal(memorySchemaEvidence(GOOD_SCHEMA).ok, true, memorySchemaEvidence(GOOD_SCHEMA).detail);
+  // Same shape, every mangled identifier renamed consistently (including a `$`).
+  const renamed = GOOD_SCHEMA.replace(/\b(Ya|ts|ns|rs|es|Fa|Ua|Wa|Ha|Ba|cs|ls)\b/g, (m) => `$${m}9`);
+  assert.equal(memorySchemaEvidence(renamed).ok, true, memorySchemaEvidence(renamed).detail);
+  const dropped = memorySchemaEvidence(GOOD_SCHEMA.replace('dream:rs.optional(),', ''));
   assert.equal(dropped.ok, false);
   assert.match(dropped.detail, /dream/);
   assert.equal(memorySchemaEvidence('const a = 1;').ok, false);
+});
+
+test('memory schema evidence fails when any ONE child schema loses `enabled`', () => {
+  for (const key of ['facts', 'recall', 'nudge', 'reflection', 'dream']) {
+    for (const table of ['child', 'defaults']) {
+      const ev = memorySchemaEvidence(withoutEnabled(key, table));
+      assert.equal(ev.ok, false, `${table}.${key}: ${ev.detail}`);
+      assert.match(ev.detail, new RegExp(`no \`enabled\` field on ${key}`), ev.detail);
+    }
+  }
+  // `enabled` surviving only on the parent, or only inside a nested object, is not enough.
+  const nested = { ...CHILD, facts: 'ns=Io({debounce_settles:fo().optional(),opts:Io({enabled:go().optional()})}).strict()' };
+  assert.equal(memorySchemaEvidence(schema({ child: nested })).ok, false);
+  // A child whose definition vanished from the bundle fails too.
+  const gone = { ...CHILD, recall: 'zz=Io({enabled:go().optional()}).strict()' };
+  assert.match(memorySchemaEvidence(schema({ child: gone })).detail, /recall/);
+});
+
+test('checkOmo reports omo-memory-schema FAIL for a bundle missing one child `enabled`', (t) => {
+  const r = checkOmo(fakeOmo(tmpdir(t), { schema: withoutEnabled('nudge') }));
+  const c = byId(r.checks, 'omo-memory-schema');
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /nudge/);
+});
+
+test('objectLiteralAt / topLevelKeys ignore braces in strings and nested members', () => {
+  const t = 'x=Io({a:Li().default("}{"),b:Io({enabled:go()}),enabled:go().optional()})';
+  const obj = objectLiteralAt(t, t.indexOf('{'));
+  assert.equal(obj, t.slice(t.indexOf('{'), -1));
+  assert.deepEqual(topLevelKeys(obj), ['a', 'b', 'enabled']);
+});
+
+test('resolveNpm uses MAGIC_OMO_NPM / PATH and a shell only for Windows .cmd shims', () => {
+  assert.deepEqual(resolveNpm({ MAGIC_OMO_NPM: '/usr/bin/npm' }, 'linux'), { bin: '/usr/bin/npm', shell: false });
+  assert.deepEqual(resolveNpm({ MAGIC_OMO_NPM: 'C:\\nodejs\\npm.cmd' }, 'win32'), { bin: 'C:\\nodejs\\npm.cmd', shell: true });
+  assert.equal(resolveNpm({ PATH: '' }, 'linux'), undefined);
 });
 
 test('checkMagicContext validates pi.extensions, peerDependencies and the fence', (t) => {
