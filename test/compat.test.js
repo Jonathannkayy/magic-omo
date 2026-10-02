@@ -53,12 +53,28 @@ test('every pin agrees with its vendor manifests, newest first, default_pin exis
   }
 });
 
-function cmpVersion(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
+/** Compare strict X.Y.Z versions; throws on anything else so a malformed pin can't sort silently. */
+export function cmpVersion(a, b) {
+  const parse = (v) => {
+    const m = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(String(v));
+    if (!m) throw new Error(`not a plain X.Y.Z version: ${JSON.stringify(v)}`);
+    return m.slice(1).map(Number);
+  };
+  const pa = parse(a);
+  const pb = parse(b);
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
   return 0;
 }
+
+test('cmpVersion orders numerically and rejects malformed versions', () => {
+  assert.ok(cmpVersion('0.44.4', '0.43.2') > 0);
+  assert.ok(cmpVersion('0.43.10', '0.43.9') > 0);
+  assert.ok(cmpVersion('1.0.0', '0.99.99') > 0);
+  assert.equal(cmpVersion('0.43.2', '0.43.2'), 0);
+  for (const bad of ['0.44', '0.44.4.1', '0.44.x', '0.44.4-beta.1', 'v0.44.4', '', undefined]) {
+    assert.throws(() => cmpVersion(bad, '0.43.2'), /not a plain X\.Y\.Z/, String(bad));
+  }
+});
 
 test('no hardcoded home paths in shipped source', () => {
   for (const f of ['src/paths.js', 'src/doctor.js', 'src/install.js', 'src/guard.js', 'src/vendor.js', 'src/omo.js', 'src/cli.js']) {
