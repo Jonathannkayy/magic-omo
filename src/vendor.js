@@ -68,9 +68,15 @@ export function verifyVendor(env = process.env, pin, { full = true } = {}) {
   return res;
 }
 
-/** True when a pin's tree is installed, matches the pin and its manifest is intact. */
+/**
+ * True when a pin's tree is installed, matches the pin and its manifest was FULLY
+ * re-verified: a quick (full:false) check or a manifest that lists no file proves
+ * nothing about the files, so it never counts as verified for install decisions.
+ */
 export function vendorOk(v) {
-  return Boolean(v?.present && v.version === v.pin && v.lockOk && !v.sums?.missingManifest && !v.sums?.bad?.length && !v.sums?.missing?.length);
+  const s = v?.sums;
+  return Boolean(v?.present && v.version === v.pin && v.lockOk && s && !s.missingManifest
+    && Number.isInteger(s.checked) && s.checked > 0 && Array.isArray(s.bad) && !s.bad.length && Array.isArray(s.missing) && !s.missing.length);
 }
 
 export function writeSums(vdir) {

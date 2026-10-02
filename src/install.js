@@ -9,7 +9,8 @@ import path from 'node:path';
 import { PKG } from './compat.js';
 import { EMPTY_OBJECT_TEXT, planMemoryPolicy, planSettings, planTodowrite, revertEdits } from './edits.js';
 import { atomicWrite, backup, readJson, stamp, writeJson } from './fsutil.js';
-import { allPaths, extensionDir, vendoredVersions } from './paths.js';
+import { allPaths, extensionDir, legacyExtensionDir, ownExtensionPaths } from './paths.js';
+import { findNode, parseTree, toValue } from './jsonc.js';
 
 function readText(p) {
   return existsSync(p) ? readFileSync(p, 'utf8') : undefined;
@@ -30,10 +31,9 @@ export function readRecord(paths) {
 export function planSetup(env = process.env, { pin, memoryPolicy = true, todowrite = false, record } = {}) {
   if (!pin) throw new Error('planSetup needs the selected pin');
   const paths = allPaths(env, pin.magic_context);
-  const priorVersion = record?.magic_context;
-  const priorExt = priorVersion && priorVersion !== pin.magic_context ? extensionDir(env, priorVersion, pin.package) : undefined;
-  const files = [];
   const settingsText = readText(paths.settings);
+  const priorExt = priorExtension(env, paths, pin, record, settingsText);
+  const files = [];
   const s = planSettings(settingsText ?? EMPTY_OBJECT_TEXT, paths.extension, { priorExt });
   files.push({ role: 'settings', file: paths.settings, created: settingsText === undefined, before: settingsText, after: s.text, edits: s.edits, notes: s.notes });
   if (memoryPolicy) {
@@ -47,6 +47,33 @@ export function planSetup(env = process.env, { pin, memoryPolicy = true, todowri
     files.push({ role: 'mc-todowrite', file: paths.mcConfig, created: t === undefined, before: t, after: m.text, edits: m.edits, notes: m.notes });
   }
   return { paths, files };
+}
+
+function settingsExtensions(text) {
+  if (text === undefined) return [];
+  try {
+    const n = findNode(parseTree(text), ['extensions']);
+    return n?.type === 'array' ? toValue(n) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The runtime path a previous setup left in extensions[] that the selected one should
+ * REPLACE (recorded, revertible). In order: the path the record says we installed
+ * (covers the pre-multi-pin flat layout `<home>/vendor/node_modules/...`), the
+ * record's version under the per-version layout, and the legacy flat path when
+ * there is no record at all.
+ */
+export function priorExtension(env, paths, pin, record, settingsText) {
+  const exts = settingsExtensions(settingsText);
+  const candidates = [
+    record?.extension,
+    record?.magic_context ? extensionDir(env, record.magic_context, pin.package) : undefined,
+    legacyExtensionDir(env, pin.package),
+  ];
+  return candidates.find((c) => typeof c === 'string' && c !== paths.extension && exts.includes(c));
 }
 
 export function describeEdit(e) {
@@ -75,9 +102,12 @@ export function applySetup(plan, _env = process.env, { log = () => {} } = {}) {
     installed_at: new Date().toISOString(),
     files: [],
   };
+  const meta = (r) => JSON.stringify([r.tool_version, r.magic_context, r.extension]);
+  const metaBefore = prior ? meta(prior) : undefined;
   record.tool_version = PKG.version;
   record.magic_context = paths.magic_context;
   record.extension = paths.extension;
+  const metaChanged = prior !== undefined && meta(record) !== metaBefore;
   let changed = 0;
   for (const f of plan.files) {
     if (!f.edits.length) {
@@ -99,7 +129,9 @@ export function applySetup(plan, _env = process.env, { log = () => {} } = {}) {
     entry.edits.push(...f.edits);
     if (b) entry.backups.push(b.path);
   }
-  if (changed || !prior) {
+  // The selected pin is part of the record even when no config file needed an edit
+  // (e.g. the runtime path was already present): later setup/doctor runs read it.
+  if (changed || !prior || metaChanged) {
     record.updated_at = new Date().toISOString();
     writeJson(paths.record, record);
   }
@@ -119,7 +151,7 @@ export function uninstall(env = process.env, { dryRun = false, log = () => {} } 
     const text = readText(paths.settings);
     if (text === undefined) return { status: 'not-installed', results };
     // No record: remove any of OUR vendored extension paths (one per installed version).
-    const candidates = vendoredVersions(env).map((v) => extensionDir(env, v));
+    const candidates = ownExtensionPaths(env);
     let out = text;
     const removed = [];
     for (const ext of candidates) {

@@ -105,10 +105,13 @@ export function vendorDir(env = process.env, version) {
   return path.join(vendorRoot(env), String(version));
 }
 
-/** Versions with a vendor tree on disk, newest-first by name. */
+const VERSION_DIR = /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/;
+
+/** Versions with a vendor tree on disk, newest-first by name (the legacy flat `node_modules` is not a version). */
 export function vendoredVersions(env = process.env) {
   try {
-    return readdirSync(vendorRoot(env), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort().reverse();
+    return readdirSync(vendorRoot(env), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && VERSION_DIR.test(d.name)).map((d) => d.name).sort().reverse();
   } catch {
     return [];
   }
@@ -116,6 +119,20 @@ export function vendoredVersions(env = process.env) {
 
 export function extensionDir(env = process.env, version, pkg = '@cortexkit/pi-magic-context') {
   return path.join(vendorDir(env, version), 'node_modules', ...pkg.split('/'));
+}
+
+/** Extension path of the pre-multi-pin flat layout: <magic-omo home>/vendor/node_modules/<pkg>. */
+export function legacyExtensionDir(env = process.env, pkg = '@cortexkit/pi-magic-context') {
+  return path.join(vendorRoot(env), 'node_modules', ...pkg.split('/'));
+}
+
+/**
+ * Every extension path magic-omo itself may have put into OMO's extensions[]:
+ * one per given/vendored version, the legacy flat layout, and any recorded path.
+ */
+export function ownExtensionPaths(env = process.env, { versions = [], recorded = [] } = {}) {
+  const all = [...versions, ...vendoredVersions(env)].filter(Boolean).map((v) => extensionDir(env, v));
+  return [...new Set([...all, legacyExtensionDir(env), ...recorded.filter((x) => typeof x === 'string' && x)])];
 }
 
 export function stateDir(env = process.env) {
