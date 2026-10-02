@@ -248,6 +248,9 @@ rm -rf ~/.local/share/magic-omo   # optional: remove the vendored runtime, recor
 
 ## FAQ
 
+**Does magic-omo change OMO itself?** No. It only adds one path to `extensions[]` and flips five memory flags; `magic-omo uninstall` reverts exactly those edits.
+
+
 **Does `omo update` break or move the bridge?** No. The extension is a local path, and Senpi's update checker skips local and pinned sources. If OMO itself changes, the guard and doctor notice.
 
 **Will my running OMO session pick it up?** No. Sessions keep the setup they started with, so restart them.
