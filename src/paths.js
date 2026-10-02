@@ -1,7 +1,7 @@
 // Path resolution. Every location is derived from the environment and
 // os.homedir(); nothing is hardcoded to a particular machine.
 import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -94,12 +94,28 @@ export function magicOmoHome(env = process.env) {
   return path.join(xdg || path.join(runtimeHome(env), '.local', 'share'), 'magic-omo');
 }
 
-export function vendorDir(env = process.env) {
+/** Root of the per-version vendor trees. */
+export function vendorRoot(env = process.env) {
   return path.join(magicOmoHome(env), 'vendor');
 }
 
-export function extensionDir(env = process.env, pkg = '@cortexkit/pi-magic-context') {
-  return path.join(vendorDir(env), 'node_modules', ...pkg.split('/'));
+/** Vendor tree for one Magic Context version: <magic-omo home>/vendor/<version>/ */
+export function vendorDir(env = process.env, version) {
+  if (!version) throw new Error('vendorDir() needs the Magic Context version');
+  return path.join(vendorRoot(env), String(version));
+}
+
+/** Versions with a vendor tree on disk, newest-first by name. */
+export function vendoredVersions(env = process.env) {
+  try {
+    return readdirSync(vendorRoot(env), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort().reverse();
+  } catch {
+    return [];
+  }
+}
+
+export function extensionDir(env = process.env, version, pkg = '@cortexkit/pi-magic-context') {
+  return path.join(vendorDir(env, version), 'node_modules', ...pkg.split('/'));
 }
 
 export function stateDir(env = process.env) {
@@ -127,7 +143,7 @@ export function recordPath(env = process.env) {
   return path.join(stateDir(env), `install-${key}.json`);
 }
 
-export function allPaths(env = process.env) {
+export function allPaths(env = process.env, version) {
   const ad = agentDir(env);
   const st = mcStorage(env);
   return {
@@ -141,8 +157,10 @@ export function allPaths(env = process.env) {
     storageSource: st.source,
     db: path.join(st.dir, 'context.db'),
     magicOmoHome: magicOmoHome(env),
-    vendor: vendorDir(env),
-    extension: extensionDir(env),
+    vendorRoot: vendorRoot(env),
+    magic_context: version,
+    vendor: version ? vendorDir(env, version) : undefined,
+    extension: version ? extensionDir(env, version) : undefined,
     record: recordPath(env),
   };
 }

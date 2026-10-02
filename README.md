@@ -211,10 +211,23 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
 ## Compatibility
 
 <!-- BEGIN GENERATED: compat (npm run compat:gen) -->
-| Magic Context (`@cortexkit/pi-magic-context`) | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |
+| Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |
+|---|---|---|---|---|
+| `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | — (not yet) |
+| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 |
+
+<details>
+<summary>Full verification matrix</summary>
+
+| Magic Context | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |
 |---|---|---|---|---|---|---|
-| 0.43.2 | v90 | 5.1.7 | 2026.9.30 | ✅ verified | 2026-10-01 | Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits. |
-| 0.43.2 | v90 | 5.1.8 | unknown | ⚠️ unverified | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
+| **0.44.4** | v91 | `5.1.9` | `2026.10.1-3` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+|  |  | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+|  |  | `5.1.7` | `2026.9.30` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+| **0.43.2** **(default)** | v90 | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
+|  |  | `5.1.7` | `2026.9.30` | ✅ verified | 2026-10-01 | Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits. |
+
+</details>
 <!-- END GENERATED: compat -->
 
 Full details are in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), which is generated from [`compat.json`](compat.json).

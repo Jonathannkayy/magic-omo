@@ -6,7 +6,7 @@ import { main } from '../src/cli.js';
 import { parse } from '../src/jsonc.js';
 import { applySetup, planSetup, uninstall } from '../src/install.js';
 import { allPaths } from '../src/paths.js';
-import { capture, makeWorld, snapshot, sortedKeys } from './helpers.js';
+import { PIN, capture, makeWorld, snapshot, sortedKeys } from './helpers.js';
 
 async function cli(argv, w) {
   const io = capture();
@@ -23,7 +23,7 @@ test('setup --yes then uninstall --yes: settings.json sorted-key identical, omo.
 
   const r = await cli(['setup', '--yes'], w);
   assert.equal(r.code, 0, r.out + r.err);
-  const p = allPaths(w.env);
+  const p = allPaths(w.env, PIN.magic_context);
   const s1 = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
   assert.ok(s1.extensions.includes(p.extension));
   assert.deepEqual(s1.compaction, { enabled: true, summarizationMaxDurationMs: 1500000 }, 'native compaction untouched (resume recovery path) and siblings preserved');
@@ -113,7 +113,7 @@ test('--todowrite edits the shared MC config with backup and uninstall reverts i
   assert.equal((await cli(['setup', '--yes', '--todowrite'], w)).code, 0);
   assert.equal(parse(readFileSync(w.mcConfigFile, 'utf8')).todowrite.enabled, false);
   assert.ok(readFileSync(w.mcConfigFile, 'utf8').includes('// Shared Magic Context config'));
-  const p = allPaths(w.env);
+  const p = allPaths(w.env, PIN.magic_context);
   const backups = readdirSync(path.join(p.magicOmoHome, 'backups'));
   const files = backups.flatMap((d) => readdirSync(path.join(p.magicOmoHome, 'backups', d)));
   assert.ok(files.some((f) => f.startsWith('mc-todowrite-')), 'backup of shared config taken');
@@ -164,7 +164,7 @@ test('install record merges later additions; uninstall without record removes on
   t.after(w.cleanup);
   await cli(['setup', '--yes'], w);
   await cli(['setup', '--yes', '--todowrite'], w);
-  const p = allPaths(w.env);
+  const p = allPaths(w.env, PIN.magic_context);
   const rec = JSON.parse(readFileSync(p.record, 'utf8'));
   assert.deepEqual(rec.files.map((f) => f.role).sort(), ['mc-todowrite', 'omo-memory', 'settings']);
   // Lose the record: uninstall falls back to removing just the extension path.
@@ -180,12 +180,12 @@ test('install record merges later additions; uninstall without record removes on
 test('applySetup refuses if the file changed between plan and apply', (t) => {
   const w = makeWorld();
   t.after(w.cleanup);
-  const plan = planSetup(w.env);
+  const plan = planSetup(w.env, { pin: PIN });
   writeFileSync(w.settingsFile, readFileSync(w.settingsFile, 'utf8').replace('"dark"', '"light"'));
   assert.throws(() => applySetup(plan, w.env), /changed while planning/);
 });
 
-test('setup refuses when the shared DB schema is newer than the fence', { skip: !process.features?.typescript && false }, async (t) => {
+test('setup refuses when the shared DB schema is newer than every pin', { skip: !process.features?.typescript && false }, async (t) => {
   let sqlite;
   try {
     sqlite = await import('node:sqlite');
@@ -198,11 +198,34 @@ test('setup refuses when the shared DB schema is newer than the fence', { skip: 
   const dir = path.join(w.home, '.local', 'share', 'cortexkit', 'magic-context');
   (await import('node:fs')).mkdirSync(dir, { recursive: true });
   const db = new sqlite.DatabaseSync(path.join(dir, 'context.db'));
-  db.exec('create table schema_migrations(version integer); insert into schema_migrations values (90),(91);');
+  db.exec('create table schema_migrations(version integer); insert into schema_migrations values (90),(999);');
   db.close();
   const s0 = readFileSync(w.settingsFile, 'utf8');
   const r = await cli(['setup', '--yes'], w);
-  assert.equal(r.code, 2);
-  assert.match(r.err, /schema v91 is NEWER than this build's fence v90/);
+  assert.equal(r.code, 2, r.out + r.err);
+  assert.match(r.err, /newer than every pin/);
   assert.equal(readFileSync(w.settingsFile, 'utf8'), s0);
+});
+
+test('a v91 database selects the 0.44.4 pin instead of failing', { skip: !process.features?.typescript && false }, async (t) => {
+  let sqlite;
+  try {
+    sqlite = await import('node:sqlite');
+  } catch {
+    t.skip('node:sqlite unavailable');
+    return;
+  }
+  const w = makeWorld();
+  t.after(w.cleanup);
+  const dir = path.join(w.home, '.local', 'share', 'cortexkit', 'magic-context');
+  (await import('node:fs')).mkdirSync(dir, { recursive: true });
+  const db = new sqlite.DatabaseSync(path.join(dir, 'context.db'));
+  db.exec('create table schema_migrations(version integer); insert into schema_migrations values (91);');
+  db.close();
+  const r = await cli(['setup', '--yes'], w);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /pin: Magic Context 0\.44\.4/);
+  const ext = allPaths(w.env, '0.44.4').extension;
+  assert.ok(JSON.parse(readFileSync(w.settingsFile, 'utf8')).extensions.includes(ext));
+  assert.equal(JSON.parse(readFileSync(allPaths(w.env, '0.44.4').record, 'utf8')).magic_context, '0.44.4');
 });

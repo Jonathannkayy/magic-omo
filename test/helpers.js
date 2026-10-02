@@ -9,7 +9,10 @@ export const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const FIX = path.join(TEST_DIR, 'fixtures');
 export const ROOT = path.resolve(TEST_DIR, '..');
 
-const PIN = JSON.parse(readFileSync(path.join(ROOT, 'compat.json'), 'utf8')).pin;
+export const COMPAT = JSON.parse(readFileSync(path.join(ROOT, 'compat.json'), 'utf8'));
+/** The pin setup picks in a peer-less world (compat.json default_pin). */
+export const PIN = COMPAT.pins.find((p) => p.magic_context === COMPAT.default_pin) ?? COMPAT.pins[0];
+const VERIFIED = COMPAT.matrix.find((r) => r.magic_context === PIN.magic_context && r.status === 'verified') ?? COMPAT.matrix[0];
 
 function sh(file, body) {
   writeFileSync(file, `#!/bin/sh\n${body}\n`);
@@ -33,8 +36,8 @@ export function makeWorld(opts = {}) {
   mkdirSync(path.join(omoPkg, 'bin'), { recursive: true });
   mkdirSync(path.join(senpi, 'dist', 'core', 'extensions'), { recursive: true });
 
-  writeFileSync(path.join(omoPkg, 'package.json'), JSON.stringify({ name: 'omo-ai', version: opts.omoVersion ?? PIN.omo }));
-  writeFileSync(path.join(senpi, 'package.json'), JSON.stringify({ name: '@code-yeongyu/senpi', version: opts.senpiVersion ?? PIN.senpi }));
+  writeFileSync(path.join(omoPkg, 'package.json'), JSON.stringify({ name: 'omo-ai', version: opts.omoVersion ?? VERIFIED.omo }));
+  writeFileSync(path.join(senpi, 'package.json'), JSON.stringify({ name: '@code-yeongyu/senpi', version: opts.senpiVersion ?? VERIFIED.senpi }));
   writeFileSync(path.join(senpi, 'dist', 'core', 'extensions', 'runner.js'),
     opts.compactHook === false ? 'export const x = 1;\n' : 'if (event.type === "session_before_compact") {}\n');
   writeFileSync(path.join(senpi, 'dist', 'core', 'package-manager.js'),
@@ -53,11 +56,19 @@ case "$1" in
   root) echo "${path.join(base, 'global', 'lib', 'node_modules')}"; exit 0;;
   install)
     echo "$@" >> "${path.join(base, 'npm-calls.log')}"
+    spec=""
+    for a in "$@"; do case "$a" in *pi-magic-context@*) spec=\${a##*@};; esac; done
+    [ -n "$spec" ] || exit 1
+    fence=${fence}
+    integrity='${integrity}'
+    case "$spec" in
+${COMPAT.pins.filter((p) => p.magic_context !== PIN.magic_context).map((p) => `      ${p.magic_context}) fence=${p.schema_fence}; integrity='${p.integrity}';;`).join('\n')}
+    esac
     d=node_modules/@cortexkit/pi-magic-context
     mkdir -p "$d/dist"
-    printf '{"name":"@cortexkit/pi-magic-context","version":"${PIN.magic_context}"}' > "$d/package.json"
-    printf 'const LATEST_SUPPORTED_VERSION = ${fence};\\n' > "$d/dist/index-test.js"
-    printf '{"name":"magic-omo-vendor","lockfileVersion":3,"packages":{"node_modules/@cortexkit/pi-magic-context":{"version":"${PIN.magic_context}","integrity":"${integrity}"}}}' > package-lock.json
+    printf '{"name":"@cortexkit/pi-magic-context","version":"%s"}' "$spec" > "$d/package.json"
+    printf 'const LATEST_SUPPORTED_VERSION = %s;\\n' "$fence" > "$d/dist/index-test.js"
+    printf '{"name":"magic-omo-vendor","lockfileVersion":3,"packages":{"node_modules/@cortexkit/pi-magic-context":{"version":"%s","integrity":"%s"}}}' "$spec" "$integrity" > package-lock.json
     exit 0;;
 esac
 exit 1`);

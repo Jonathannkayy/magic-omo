@@ -14,14 +14,34 @@ test('docs/COMPATIBILITY.md and README block match compat.json', () => {
   assert.equal(spliceReadme(readme, compat), readme);
 });
 
-test('compat pin agrees with vendor/package.json and lockfile', () => {
-  const v = JSON.parse(readFileSync(path.join(ROOT, 'vendor', 'package.json'), 'utf8'));
-  assert.equal(v.dependencies[compat.pin.package], compat.pin.magic_context);
-  const lock = JSON.parse(readFileSync(path.join(ROOT, 'vendor', 'package-lock.json'), 'utf8'));
-  const e = lock.packages[`node_modules/${compat.pin.package}`];
-  assert.equal(e.version, compat.pin.magic_context);
-  assert.equal(e.integrity, compat.pin.integrity);
+test('every pin agrees with its vendor manifests, newest first, default_pin exists', () => {
+  assert.ok(compat.pins.length >= 1);
+  for (const pin of compat.pins) {
+    const dir = path.join(ROOT, path.dirname(pin.lockfile));
+    const v = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    assert.equal(v.dependencies[pin.package], pin.magic_context, pin.magic_context);
+    const lock = JSON.parse(readFileSync(path.join(ROOT, pin.lockfile), 'utf8'));
+    const e = lock.packages[`node_modules/${pin.package}`];
+    assert.equal(e.version, pin.magic_context);
+    assert.equal(e.integrity, pin.integrity);
+  }
+  const sorted = [...compat.pins].sort((a, b) => cmpVersion(b.magic_context, a.magic_context));
+  assert.deepEqual(compat.pins.map((p) => p.magic_context), sorted.map((p) => p.magic_context), 'pins must be newest first');
+  assert.ok(compat.pins.some((p) => p.magic_context === compat.default_pin), 'default_pin must be one of the pins');
+  // Every matrix row belongs to a pin and repeats that pin's fence.
+  for (const r of compat.matrix) {
+    const pin = compat.pins.find((p) => p.magic_context === r.magic_context);
+    assert.ok(pin, `matrix row for unpinned ${r.magic_context}`);
+    assert.equal(r.schema_fence, pin.schema_fence);
+  }
 });
+
+function cmpVersion(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  return 0;
+}
 
 test('no hardcoded home paths in shipped source', () => {
   for (const f of ['src/paths.js', 'src/doctor.js', 'src/install.js', 'src/guard.js', 'src/vendor.js', 'src/omo.js', 'src/cli.js']) {

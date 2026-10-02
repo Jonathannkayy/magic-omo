@@ -13,7 +13,9 @@ import { runDoctor } from './doctor.js';
 import { atomicWrite } from './fsutil.js';
 import { uninstall } from './install.js';
 import { locateOmo, which } from './omo.js';
-import { allPaths, configHome, runtimeHome } from './paths.js';
+import { allPaths, configHome, extensionDir, runtimeHome, vendoredVersions, vendorDir } from './paths.js';
+import { readRecord } from './install.js';
+import { DEFAULT_PIN } from './compat.js';
 
 export const UNIT = 'magic-omo-guard';
 export const LAUNCHD_LABEL = 'io.github.jonathannkayy.magic-omo-guard';
@@ -45,13 +47,14 @@ export async function guardRun(env = process.env, { doctor = runDoctor, stderr =
 
 /** Files whose change should re-trigger the guard. */
 export function watchedFiles(env = process.env) {
-  const p = allPaths(env);
+  const base = allPaths(env);
   const omo = locateOmo(env);
+  const versions = [...new Set([readRecord(base)?.magic_context, ...vendoredVersions(env)].filter(Boolean))];
+  if (!versions.length) versions.push(DEFAULT_PIN.magic_context);
   return [
     omo.pkgRoot && path.join(omo.pkgRoot, 'package.json'),
     omo.senpiRoot && path.join(omo.senpiRoot, 'package.json'),
-    path.join(p.extension, 'package.json'),
-    path.join(p.vendor, 'package-lock.json'),
+    ...versions.flatMap((v) => [path.join(extensionDir(env, v), 'package.json'), path.join(vendorDir(env, v), 'package-lock.json')]),
     path.join(ROOT, 'compat.json'),
   ].filter(Boolean);
 }

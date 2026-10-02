@@ -1,15 +1,16 @@
-// The pinned, vendored copy of @cortexkit/pi-magic-context.
+// The pinned, vendored copies of @cortexkit/pi-magic-context.
 //
-// Installed into <magic-omo home>/vendor with `npm install --ignore-scripts --save-exact`
-// from the lockfile shipped in this repo, verified against compat.json, then frozen
+// Each pin gets its own tree: <magic-omo home>/vendor/<version>/, installed with
+// `npm install --ignore-scripts --save-exact` from the lockfile shipped in this repo
+// (vendor/<version>/package-lock.json), verified against compat.json, then frozen
 // with a SHA256SUMS manifest that doctor re-verifies on every run.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { PIN, ROOT } from './compat.js';
+import { pinManifests } from './compat.js';
 import { atomicWrite, sha256 } from './fsutil.js';
 import { which } from './omo.js';
-import { extensionDir, vendorDir } from './paths.js';
+import { extensionDir, vendorDir, vendoredVersions } from './paths.js';
 
 function walk(dir, base = dir, out = []) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -20,22 +21,22 @@ function walk(dir, base = dir, out = []) {
   return out;
 }
 
-export function lockEntry(vdir) {
+export function lockEntry(vdir, pin) {
   for (const f of ['package-lock.json', path.join('node_modules', '.package-lock.json')]) {
     try {
       const lock = JSON.parse(readFileSync(path.join(vdir, f), 'utf8'));
-      const e = lock.packages?.[`node_modules/${PIN.package}`];
+      const e = lock.packages?.[`node_modules/${pin.package}`];
       if (e) return { file: f, version: e.version, integrity: e.integrity };
     } catch { /* try next */ }
   }
   return undefined;
 }
 
-/** Verify the vendored tree. Returns { present, version, lock, sums: {checked, bad, missing} }. */
-export function verifyVendor(env = process.env, { full = true } = {}) {
-  const vdir = vendorDir(env);
-  const ext = extensionDir(env, PIN.package);
-  const res = { dir: vdir, ext, present: existsSync(path.join(ext, 'package.json')) };
+/** Verify one pin's vendored tree. Returns { present, version, lock, sums: {checked, bad, missing} }. */
+export function verifyVendor(env = process.env, pin, { full = true } = {}) {
+  const vdir = vendorDir(env, pin.magic_context);
+  const ext = extensionDir(env, pin.magic_context, pin.package);
+  const res = { pin: pin.magic_context, dir: vdir, ext, present: existsSync(path.join(ext, 'package.json')) };
   if (!res.present) return res;
   try {
     res.version = JSON.parse(readFileSync(path.join(ext, 'package.json'), 'utf8')).version;
@@ -43,8 +44,8 @@ export function verifyVendor(env = process.env, { full = true } = {}) {
     res.version = undefined;
     res.error = String(e.message);
   }
-  res.lock = lockEntry(vdir);
-  res.lockOk = Boolean(res.lock && res.lock.version === PIN.magic_context && res.lock.integrity === PIN.integrity);
+  res.lock = lockEntry(vdir, pin);
+  res.lockOk = Boolean(res.lock && res.lock.version === pin.magic_context && res.lock.integrity === pin.integrity);
   const sumsFile = path.join(vdir, 'SHA256SUMS');
   if (!existsSync(sumsFile)) {
     res.sums = { missingManifest: true };
@@ -67,6 +68,11 @@ export function verifyVendor(env = process.env, { full = true } = {}) {
   return res;
 }
 
+/** True when a pin's tree is installed, matches the pin and its manifest is intact. */
+export function vendorOk(v) {
+  return Boolean(v?.present && v.version === v.pin && v.lockOk && !v.sums?.missingManifest && !v.sums?.bad?.length && !v.sums?.missing?.length);
+}
+
 export function writeSums(vdir) {
   const files = walk(path.join(vdir, 'node_modules')).sort();
   const lines = files.map((rel) => `${sha256(readFileSync(path.join(vdir, 'node_modules', rel)))}  node_modules/${rel}`);
@@ -75,31 +81,41 @@ export function writeSums(vdir) {
 }
 
 /**
- * Install the pinned package. `log` receives progress lines.
+ * Install one pin. `log` receives progress lines.
  * Throws on any verification failure (nothing in OMO is touched yet at this point).
  */
-export function installVendor(env = process.env, { log = () => {} } = {}) {
-  const vdir = vendorDir(env);
+export function installVendor(env = process.env, pin, { log = () => {} } = {}) {
+  const vdir = vendorDir(env, pin.magic_context);
   mkdirSync(vdir, { recursive: true });
   // Ship the exact lockfile so transitive dependencies are reproducible too.
-  copyFileSync(path.join(ROOT, 'vendor', 'package.json'), path.join(vdir, 'package.json'));
-  copyFileSync(path.join(ROOT, 'vendor', 'package-lock.json'), path.join(vdir, 'package-lock.json'));
+  const man = pinManifests(pin);
+  copyFileSync(man.pkg, path.join(vdir, 'package.json'));
+  copyFileSync(man.lock, path.join(vdir, 'package-lock.json'));
   const npm = env.MAGIC_OMO_NPM || which('npm', env);
   if (!npm) throw new Error('npm not found on PATH (needed once to fetch the pinned extension)');
-  const args = ['install', '--ignore-scripts', '--save-exact', '--no-audit', '--no-fund', '--omit=peer', `${PIN.package}@${PIN.magic_context}`];
+  const args = ['install', '--ignore-scripts', '--save-exact', '--no-audit', '--no-fund', '--omit=peer', `${pin.package}@${pin.magic_context}`];
   log(`npm ${args.join(' ')}  (cwd ${vdir})`);
   const r = spawnSync(npm, args, { cwd: vdir, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 600_000 });
   if (r.status !== 0) throw new Error(`npm install failed (exit ${r.status}): ${(r.stderr || r.stdout || '').trim().slice(-400)}`);
-  const lock = lockEntry(vdir);
-  if (!lock) throw new Error(`lockfile has no entry for ${PIN.package}`);
-  if (lock.version !== PIN.magic_context) throw new Error(`installed ${lock.version}, pin is ${PIN.magic_context}`);
-  if (lock.integrity !== PIN.integrity) throw new Error(`integrity mismatch: got ${lock.integrity}, pin ${PIN.integrity}`);
-  const ext = extensionDir(env, PIN.package);
+  const lock = lockEntry(vdir, pin);
+  if (!lock) throw new Error(`lockfile has no entry for ${pin.package}`);
+  if (lock.version !== pin.magic_context) throw new Error(`installed ${lock.version}, pin is ${pin.magic_context}`);
+  if (lock.integrity !== pin.integrity) throw new Error(`integrity mismatch: got ${lock.integrity}, pin ${pin.integrity}`);
+  const ext = extensionDir(env, pin.magic_context, pin.package);
   const v = JSON.parse(readFileSync(path.join(ext, 'package.json'), 'utf8')).version;
-  if (v !== PIN.magic_context) throw new Error(`extension package.json says ${v}, pin is ${PIN.magic_context}`);
+  if (v !== pin.magic_context) throw new Error(`extension package.json says ${v}, pin is ${pin.magic_context}`);
   const n = writeSums(vdir);
-  log(`verified ${PIN.package}@${v} (${PIN.integrity.slice(0, 19)}…); SHA256SUMS over ${n} files`);
+  log(`verified ${pin.package}@${v} (${pin.integrity.slice(0, 19)}…); SHA256SUMS over ${n} files`);
   return { dir: vdir, ext, files: n };
+}
+
+/** Delete every vendored version except `keep`. Returns the removed version names. */
+export function pruneVendor(env = process.env, keep, { dryRun = false } = {}) {
+  const gone = vendoredVersions(env).filter((v) => v !== keep);
+  for (const v of gone) {
+    if (!dryRun) rmSync(vendorDir(env, v), { recursive: true, force: true });
+  }
+  return gone;
 }
 
 export function vendorSize(vdir) {

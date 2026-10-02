@@ -2,7 +2,7 @@
 // Each planner takes the current file text and returns { text, edits[], notes[] }.
 // Edits are recorded verbatim in the install record so uninstall can revert
 // exactly those changes and nothing else.
-import { findNode, parse, parseTree, revertEdit, setPath, appendElement, insertMember, toValue } from './jsonc.js';
+import { findNode, parse, parseTree, revertEdit, setPath, appendElement, insertMember, replaceElement, toValue } from './jsonc.js';
 
 export const OMO_AUTO_MEMORY_SUBSYSTEMS = Object.freeze(['facts', 'recall', 'nudge', 'reflection', 'dream']);
 
@@ -16,7 +16,7 @@ export const OMO_AUTO_MEMORY_SUBSYSTEMS = Object.freeze(['facts', 'recall', 'nud
  * Context still owns the window: its `session_before_compact` handler cancels native
  * compaction (verified: 18-turn run to 96% with zero native compaction entries).
  */
-export function planSettings(text, ext) {
+export function planSettings(text, ext, { priorExt } = {}) {
   const edits = [];
   const notes = [];
   const root = parseTree(text);
@@ -28,12 +28,19 @@ export function planSettings(text, ext) {
     edits.push(r.edit);
   } else if (exts.type !== 'array') {
     throw new Error('settings "extensions" is not an array; refusing to guess');
-  } else if (!toValue(exts).includes(ext)) {
+  } else if (toValue(exts).includes(ext)) {
+    notes.push('extension path already present in extensions[]');
+  } else if (priorExt && priorExt !== ext && toValue(exts).includes(priorExt)) {
+    // A different pin was installed before: swap the entry in place, recorded so
+    // uninstall still restores the ORIGINAL file exactly.
+    const r = replaceElement(text, ['extensions'], priorExt, ext);
+    text = r.text;
+    edits.push(r.edit);
+    notes.push(`replacing the previously installed runtime path (${priorExt})`);
+  } else {
     const r = appendElement(text, ['extensions'], ext);
     text = r.text;
     edits.push(r.edit);
-  } else {
-    notes.push('extension path already present in extensions[]');
   }
   const comp = findNode(parseTree(text), ['compaction']);
   const compEnabled = comp && comp.type === 'object' ? toValue(comp).enabled : undefined;
