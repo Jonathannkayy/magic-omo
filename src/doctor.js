@@ -231,14 +231,18 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
 
 const COLORS = { PASS: '\x1b[32m', INFO: '\x1b[36m', WARN: '\x1b[33m', FAIL: '\x1b[31m' };
 
+export function formatSummary(report) {
+  const k = report.counts;
+  return `${k.PASS} pass, ${k.WARN} warn, ${k.FAIL} fail, ${k.INFO} info — ${report.ok ? 'OK' : 'NEEDS ATTENTION'}`;
+}
+
 export function formatDoctor(report, { color = false } = {}) {
   const lines = [`magic-omo ${report.version} doctor — Magic Context ${report.pin.magic_context} (schema fence v${report.pin.schema_fence})`, ''];
   for (const c of report.checks) {
     const tag = color ? `${COLORS[c.status]}${c.status.padEnd(4)}\x1b[0m` : c.status.padEnd(4);
     lines.push(`  ${tag}  ${c.title}: ${c.detail}`);
   }
-  const k = report.counts;
-  lines.push('', `${k.PASS} pass, ${k.WARN} warn, ${k.FAIL} fail, ${k.INFO} info — ${report.ok ? 'OK' : 'NEEDS ATTENTION'}`);
+  lines.push('', formatSummary(report));
   return lines.join('\n');
 }
 
