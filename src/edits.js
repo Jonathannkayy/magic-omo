@@ -2,7 +2,7 @@
 // Each planner takes the current file text and returns { text, edits[], notes[] }.
 // Edits are recorded verbatim in the install record so uninstall can revert
 // exactly those changes and nothing else.
-import { findNode, parse, parseTree, revertEdit, setPath, appendElement, insertMember, replaceElement, toValue } from './jsonc.js';
+import { findNode, parse, parseTree, revertEdit, setPath, appendElement, insertMember, removeArrayElementAt, replaceElement, toValue } from './jsonc.js';
 
 export const OMO_AUTO_MEMORY_SUBSYSTEMS = Object.freeze(['facts', 'recall', 'nudge', 'reflection', 'dream']);
 
@@ -30,6 +30,15 @@ export function planSettings(text, ext, { priorExt } = {}) {
     throw new Error('settings "extensions" is not an array; refusing to guess');
   } else if (toValue(exts).includes(ext)) {
     notes.push('extension path already present in extensions[]');
+    if (priorExt && priorExt !== ext && toValue(exts).includes(priorExt)) {
+      // Both runtimes are listed: OMO would load two Magic Contexts. Drop the stale
+      // prior pin (last copy, the one setup would have swapped), recorded so
+      // uninstall puts those exact bytes back in that exact slot.
+      const r = removeArrayElementAt(text, ['extensions'], toValue(exts).lastIndexOf(priorExt));
+      text = r.text;
+      edits.push(r.edit);
+      notes.push(`removing the stale previously installed runtime path (${priorExt})`);
+    }
   } else if (priorExt && priorExt !== ext && toValue(exts).includes(priorExt)) {
     // A different pin was installed before: swap the entry in place, recorded so
     // uninstall still restores the ORIGINAL file exactly.
@@ -81,7 +90,7 @@ export function revertEdits(text, edits) {
   for (const e of [...edits].reverse()) {
     const r = revertEdit(text, e);
     text = r.text;
-    results.push({ path: [...e.path, ...(e.key ? [e.key] : [])].join('.'), op: e.op, status: r.status });
+    results.push({ path: [...e.path, ...(e.key ? [e.key] : [])].join('.'), op: e.op, status: r.status, ...(r.detail ? { detail: r.detail } : {}) });
   }
   return { text, results };
 }

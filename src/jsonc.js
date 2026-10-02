@@ -265,9 +265,13 @@ export function appendElement(text, path, value) {
   return { text: text.slice(0, last.end) + ins + text.slice(last.end), edit: { op: 'appendElement', path, value } };
 }
 
+const same = (node, v) => JSON.stringify(toValue(node)) === JSON.stringify(v);
+
 /**
  * Replace the (last) array element deep-equal to `prior` at `path` with `value`,
- * in place. Revert restores `prior` at the same position.
+ * in place. The edit records the slot `index` and the element's ORIGINAL raw text
+ * (`priorRaw`, comments and formatting inside it included) so revert puts exactly
+ * those bytes back into exactly that slot.
  */
 export function replaceElement(text, path, prior, value) {
   const root = parseTree(text);
@@ -278,7 +282,89 @@ export function replaceElement(text, path, prior, value) {
   if (idx < 0) throw new JsoncError(`no element ${want} in ${path.join('.')}`);
   const el = node.elements[idx];
   const raw = serialize(value, lineIndentAt(text, el.start), detectIndentUnit(text));
-  return { text: text.slice(0, el.start) + raw + text.slice(el.end), edit: { op: 'replaceElement', path, value, prior } };
+  const priorRaw = text.slice(el.start, el.end);
+  return {
+    text: text.slice(0, el.start) + raw + text.slice(el.end),
+    edit: { op: 'replaceElement', path, value, prior, priorRaw, index: idx },
+  };
+}
+
+/**
+ * Remove the array element at `index` (exactly that slot). The edit records the
+ * removed byte span and the neighbour it was attached to, so revert re-inserts the
+ * identical bytes, and refuses when that neighbour is no longer where it was.
+ */
+export function removeArrayElementAt(text, path, index) {
+  const root = parseTree(text);
+  const node = findNode(root, path);
+  if (!node || node.type !== 'array') throw new JsoncError(`not an array: ${path.join('.')}`);
+  const el = node.elements[index];
+  if (!el) throw new JsoncError(`no element at ${path.join('.')}[${index}]`);
+  const prior = toValue(el);
+  const base = { op: 'removeElement', path, index, prior, priorRaw: text.slice(el.start, el.end) };
+  let from;
+  let to;
+  let anchor;
+  if (node.elements.length === 1) {
+    from = el.start;
+    to = el.end;
+    const t = text.slice(0, from) + text.slice(to);
+    // Revert re-inserts at the same offset inside the (then element-less) array.
+    return { text: t, edit: { ...base, removedRaw: text.slice(from, to), offset: from - node.start, innerAfter: t.slice(node.start + 1, node.end - 1 - (to - from)) } };
+  }
+  if (index > 0) {
+    const prev = node.elements[index - 1];
+    from = prev.end;
+    to = el.end;
+    anchor = { index: index - 1, raw: text.slice(prev.start, prev.end), side: 'after' };
+  } else {
+    const next = node.elements[1];
+    from = el.start;
+    to = next.start;
+    anchor = { index: 0, raw: text.slice(next.start, next.end), side: 'before' };
+  }
+  return { text: text.slice(0, from) + text.slice(to), edit: { ...base, removedRaw: text.slice(from, to), anchor } };
+}
+
+function revertRemoveElement(text, root, edit) {
+  const node = findNode(root, edit.path);
+  const where = `${edit.path.join('.')}[${edit.index}]`;
+  if (!node || node.type !== 'array') return { text, status: 'absent', detail: `${edit.path.join('.')} is gone; nothing restored` };
+  if (!edit.anchor) {
+    const inner = text.slice(node.start + 1, node.end - 1);
+    if (node.elements.length || inner !== edit.innerAfter) {
+      return { text, status: 'modified', detail: `${edit.path.join('.')} changed since setup; ${JSON.stringify(edit.prior)} not re-added at ${where} (left as is)` };
+    }
+    const at = node.start + edit.offset;
+    return { text: text.slice(0, at) + edit.removedRaw + text.slice(at), status: 'reverted' };
+  }
+  const a = node.elements[edit.anchor.index];
+  if (!a || text.slice(a.start, a.end) !== edit.anchor.raw) {
+    return { text, status: 'modified', detail: `${edit.path.join('.')} was reordered or edited since setup; ${JSON.stringify(edit.prior)} not re-added at ${where} (left as is)` };
+  }
+  const at = edit.anchor.side === 'after' ? a.end : a.start;
+  return { text: text.slice(0, at) + edit.removedRaw + text.slice(at), status: 'reverted' };
+}
+
+function revertReplaceElement(text, root, edit) {
+  const node = findNode(root, edit.path);
+  if (!node || node.type !== 'array') return { text, status: 'absent' };
+  const has = (v) => node.elements.some((e) => same(e, v));
+  if (edit.index === undefined || edit.priorRaw === undefined) {
+    // Record written before slot/raw tracking: best-effort semantic revert.
+    if (!has(edit.value)) return { text, status: has(edit.prior) ? 'absent' : 'modified' };
+    return { text: replaceElement(text, edit.path, edit.value, edit.prior).text, status: 'reverted' };
+  }
+  const el = node.elements[edit.index];
+  if (!el || !same(el, edit.value)) {
+    // The recorded slot no longer holds our value (reordered, edited, entries
+    // inserted before it). We cannot prove which slot is ours, so touch nothing.
+    const where = `${edit.path.join('.')}[${edit.index}]`;
+    const n = node.elements.filter((e) => same(e, edit.value)).length;
+    const why = n ? `array reordered or edited; ${n} equal entr${n === 1 ? 'y' : 'ies'} elsewhere` : 'it is no longer present';
+    return { text, status: n || !has(edit.prior) ? 'modified' : 'absent', detail: `${where} no longer holds ${JSON.stringify(edit.value)} (${why}); left as is` };
+  }
+  return { text: text.slice(0, el.start) + edit.priorRaw + text.slice(el.end), status: 'reverted' };
 }
 
 /** Remove every array element deep-equal to `value` at `path`. */
@@ -339,9 +425,10 @@ export function setPath(text, path, value) {
 }
 
 /**
- * Revert one recorded edit. Returns { text, status } where status is one of
- * 'reverted', 'absent' (already gone), or 'modified' (user changed our value:
- * left alone on purpose).
+ * Revert one recorded edit. Returns { text, status, detail? } where status is one
+ * of 'reverted', 'absent' (already gone), or 'modified' (user changed our value,
+ * or the recorded array slot no longer validates: left alone on purpose; `detail`
+ * says why).
  */
 export function revertEdit(text, edit) {
   const root = parseTree(text);
@@ -361,12 +448,7 @@ export function revertEdit(text, edit) {
     const r = removeElement(text, edit.path, edit.value, { emptyInner: edit.emptyInner });
     return { text: r.text, status: r.removed ? 'reverted' : 'absent' };
   }
-  if (edit.op === 'replaceElement') {
-    const node = findNode(root, edit.path);
-    if (!node || node.type !== 'array') return { text, status: 'absent' };
-    const has = (v) => node.elements.some((e) => JSON.stringify(toValue(e)) === JSON.stringify(v));
-    if (!has(edit.value)) return { text, status: has(edit.prior) ? 'absent' : 'modified' };
-    return { text: replaceElement(text, edit.path, edit.value, edit.prior).text, status: 'reverted' };
-  }
+  if (edit.op === 'replaceElement') return revertReplaceElement(text, root, edit);
+  if (edit.op === 'removeElement') return revertRemoveElement(text, root, edit);
   throw new JsoncError(`unknown edit op ${edit.op}`);
 }
