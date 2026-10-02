@@ -9,10 +9,10 @@
   "files": [
     "bin/",
     "src/",
-    "vendor/package.json",
-    "vendor/package-lock.json",
+    "vendor/",
     "compat.json",
     "docs/COMPATIBILITY.md",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
@@ -25,6 +25,7 @@
     "lint": "eslint .",
     "compat:gen": "node scripts/gen-compat.js",
     "compat:check": "node scripts/gen-compat.js --check",
+    "contract:check": "node scripts/contract-check.js",
     "shellcheck": "shellcheck test/e2e/*.sh",
     "check": "npm run lint && npm run compat:check && npm test"
   },

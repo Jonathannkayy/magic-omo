@@ -10,34 +10,73 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BEGIN = '<!-- BEGIN GENERATED: compat (npm run compat:gen) -->';
 const END = '<!-- END GENERATED: compat -->';
 
+const ICON = { verified: '✅ verified', unverified: '⚠️ unverified', broken: '❌ broken' };
+
+function rowsFor(compat, mc) {
+  return compat.matrix.filter((r) => r.magic_context === mc);
+}
+
+/** Matrix rows grouped by Magic Context version, newest pin first, then any orphan rows. */
+export function groups(compat) {
+  const out = compat.pins.map((p) => ({ pin: p, rows: rowsFor(compat, p.magic_context) }));
+  const pinned = new Set(compat.pins.map((p) => p.magic_context));
+  const orphans = [...new Set(compat.matrix.map((r) => r.magic_context))].filter((v) => !pinned.has(v));
+  for (const v of orphans) out.push({ pin: { magic_context: v, schema_fence: rowsFor(compat, v)[0]?.schema_fence }, rows: rowsFor(compat, v) });
+  return out;
+}
+
+/** The full matrix, grouped by Magic Context version. `evidence` is shown when any row has it. */
 export function renderTable(compat) {
-  const icon = { verified: '✅ verified', unverified: '⚠️ unverified', broken: '❌ broken' };
-  const rows = compat.matrix.map(
-    (r) => `| ${r.magic_context} | v${r.schema_fence} | ${r.omo} | ${r.senpi} | ${icon[r.status] ?? r.status} | ${r.verified_on ?? '—'} | ${r.notes} |`,
-  );
-  return [
-    '| Magic Context (`@cortexkit/pi-magic-context`) | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |',
-    '|---|---|---|---|---|---|---|',
-    ...rows,
-  ].join('\n');
+  const withEvidence = compat.matrix.some((r) => r.evidence);
+  const head = ['Magic Context', 'Schema fence', 'OMO Native (`omo-ai`)', 'Senpi', 'Status', 'Verified', ...(withEvidence ? ['Evidence'] : []), 'Notes'];
+  const lines = [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`];
+  for (const g of groups(compat)) {
+    const dflt = g.pin.magic_context === compat.default_pin ? ' **(default)**' : '';
+    if (!g.rows.length) {
+      lines.push(`| **${g.pin.magic_context}**${dflt} | v${g.pin.schema_fence} | — | — | ⚠️ unverified | — |${withEvidence ? ' — |' : ''} No combination recorded yet. |`);
+      continue;
+    }
+    g.rows.forEach((r, i) => {
+      const label = i === 0 ? `**${g.pin.magic_context}**${dflt}` : '';
+      const fence = i === 0 ? `v${r.schema_fence}` : '';
+      const cells = [label, fence, `\`${r.omo}\``, `\`${r.senpi}\``, ICON[r.status] ?? r.status, r.verified_on ?? '—', ...(withEvidence ? [r.evidence ?? '—'] : []), r.notes];
+      lines.push(`| ${cells.join(' | ')} |`);
+    });
+  }
+  return lines.join('\n');
+}
+
+/** One verified combination as shown in the pin table: both halves of the OMO runtime. */
+export const verifiedCombo = (r) => `omo-ai ${r.omo} / senpi ${r.senpi}`;
+
+/** The pin table: one row per supported Magic Context version. */
+export function renderPins(compat) {
+  const lines = [
+    '| Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |',
+    '|---|---|---|---|---|',
+  ];
+  for (const p of compat.pins) {
+    const verified = rowsFor(compat, p.magic_context).filter((r) => r.status === 'verified');
+    const dflt = p.magic_context === compat.default_pin ? ' **(default)**' : '';
+    lines.push(`| \`${p.magic_context}\`${dflt} | \`v${p.schema_fence}\` | [\`${p.lockfile}\`](../${p.lockfile}) | \`${p.integrity}\` | ${verified.length ? verified.map(verifiedCombo).join(', ') : '— (not yet)'} |`);
+  }
+  return lines.join('\n');
 }
 
 export function renderDoc(compat) {
-  const p = compat.pin;
   return `# Compatibility
 
 > Generated from [\`compat.json\`](../compat.json) by \`npm run compat:gen\`. Do not edit by hand; CI fails on drift.
 
-## Current pin
+## Supported pins
 
-| Field | Value |
-|---|---|
-| Package | \`${p.package}\` |
-| Version | \`${p.magic_context}\` |
-| npm integrity | \`${p.integrity}\` |
-| DB schema fence | \`v${p.schema_fence}\` (\`LATEST_SUPPORTED_VERSION\` in the build) |
-| Verified OMO Native | \`omo-ai ${p.omo}\` |
-| Verified Senpi | \`@code-yeongyu/senpi ${p.senpi}\` |
+magic-omo ships **every** Magic Context version in this table side by side and installs the one that
+matches the hosts already running on your machine (\`magic-omo pins\` lists them, \`magic-omo setup --mc <version>\` overrides).
+
+${renderPins(compat)}
+
+Package: \`${compat.pins[0].package}\`. Each pin's exact dependency tree lives in its own lockfile and is
+installed into \`~/.local/share/magic-omo/vendor/<version>/\`, integrity-checked and frozen with \`SHA256SUMS\`.
 
 ## Matrix
 
@@ -52,7 +91,7 @@ ${compat.rules.map((r) => `- ${r}`).join('\n')}
 }
 
 export function renderReadmeBlock(compat) {
-  return `${BEGIN}\n${renderTable(compat)}\n${END}`;
+  return `${BEGIN}\n${renderPins(compat).replace(/\]\(\.\.\//g, '](')}\n\n<details>\n<summary>Full verification matrix</summary>\n\n${renderTable(compat)}\n\n</details>\n${END}`;
 }
 
 export function spliceReadme(readme, compat) {

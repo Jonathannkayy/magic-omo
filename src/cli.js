@@ -1,28 +1,35 @@
 // magic-omo command-line interface.
 import { createInterface } from 'node:readline/promises';
-import { PIN, PKG } from './compat.js';
+import { COMPAT, DEFAULT_PIN, PINS, PKG, rowsFor } from './compat.js';
 import { formatDoctor, formatSummary, runDoctor } from './doctor.js';
-import { guardInstall, guardRun, guardTargets, guardUninstall } from './guard.js';
+import { guardInstall, guardRefresh, guardRun, guardTargets, guardUninstall } from './guard.js';
 import { applySetup, describeEdit, planSetup, readRecord, uninstall } from './install.js';
-import { allPaths } from './paths.js';
-import { verifyVendor, installVendor } from './vendor.js';
+import { allPaths, vendoredVersions } from './paths.js';
+import { collectPeers, describeSelection, selectPin } from './pins.js';
+import { schemaVersion } from './db.js';
+import { installVendor, pruneVendor, verifyVendor, vendorOk } from './vendor.js';
 
 export const HELP = `magic-omo ${PKG.version} — Magic Context for OMO Native (unofficial community bridge)
 
 Usage:
-  magic-omo setup [--yes] [--dry-run] [--keep-omo-memory] [--todowrite | --no-todowrite]
+  magic-omo setup [--yes] [--dry-run] [--mc <version>] [--prune] [--keep-omo-memory] [--todowrite | --no-todowrite]
   magic-omo doctor [--json] [--quiet] [--strict] [--probe-models]
   magic-omo status [--json]
   magic-omo uninstall [--yes] [--dry-run]
   magic-omo guard install|uninstall [--dry-run] | guard run
+  magic-omo pins [--json]
   magic-omo paths [--json]
 
-setup      Installs the pinned @cortexkit/pi-magic-context ${PIN.magic_context} into magic-omo's own
+setup      Installs the selected @cortexkit/pi-magic-context pin (default ${DEFAULT_PIN.magic_context}) into magic-omo's own
            vendor dir (npm --ignore-scripts, integrity-checked), adds it to OMO's extensions[],
            turns off OMO's AUTOMATIC memory subsystems in
            "[native]".memory (opt out: --keep-omo-memory), and OFFERS todowrite.enabled=false
            in the shared Magic Context config (asks first; --todowrite / --no-todowrite to decide
            non-interactively). Every change is backed up and revertible by \`uninstall\`.
+           The pin is chosen so this machine stays on the Magic Context series its other hosts
+           already run: --mc / MAGIC_OMO_MC_VERSION override it, --prune deletes the other
+           vendored versions afterwards.
+pins       List every Magic Context version magic-omo supports and its verified combinations.
 doctor     Read-only health checks: PASS/WARN/FAIL/INFO. Exit 1 on any FAIL.
            --quiet         print only the summary line (same exit code)
            --strict        treat unverified OMO/Senpi versions as FAIL
@@ -37,13 +44,31 @@ Environment: OMO_CODING_AGENT_DIR / SENPI_CODING_AGENT_DIR / PI_CODING_AGENT_DIR
 XDG_DATA_HOME, MAGIC_CONTEXT_STORAGE_DIR are honoured exactly like OMO and Magic Context do.
 MAGIC_OMO_HOME overrides magic-omo's own data dir (default $XDG_DATA_HOME/magic-omo).`;
 
+/** Flags that take a value, as `--mc 0.44.4` or `--mc=0.44.4`. */
+export const VALUE_FLAGS = new Set(['mc']);
+
+export class UsageError extends Error {}
+
 export function parseArgs(argv) {
   const flags = {};
   const pos = [];
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a.startsWith('--')) {
-      const [k, v] = a.slice(2).split('=');
-      flags[k] = v ?? true;
+      const eq = a.indexOf('=');
+      const k = eq === -1 ? a.slice(2) : a.slice(2, eq);
+      const v = eq === -1 ? undefined : a.slice(eq + 1);
+      if (VALUE_FLAGS.has(k)) {
+        // A value-taking flag never falls back to "unset": a malformed override must not
+        // silently select something other than what was asked for.
+        let val = v;
+        if (val === undefined) {
+          const next = argv[i + 1];
+          if (next !== undefined && !next.startsWith('-')) val = argv[++i];
+        }
+        if (val === undefined || !val.trim()) throw new UsageError(`--${k} needs a value (e.g. --${k} <version>)`);
+        flags[k] = val.trim();
+      } else flags[k] = v ?? true;
     } else if (a === '-y') flags.yes = true;
     else if (a === '-h') flags.help = true;
     else pos.push(a);
@@ -77,9 +102,22 @@ async function cmdSetup(flags, env, io) {
   const dry = Boolean(flags['dry-run']);
   const yes = Boolean(flags.yes);
   const memoryPolicy = !flags['keep-omo-memory'];
+  const mc = typeof flags.mc === 'string' ? flags.mc : undefined;
   io.out(`magic-omo setup${dry ? ' (dry run: nothing will be written)' : ''}`);
 
-  const pre = await runDoctor({ env, fullVendor: false });
+  const base = allPaths(env);
+  const record = readRecord(base);
+  const sv = await schemaVersion(base.db, env);
+  const sel = selectPin(env, collectPeers(env, { db: sv }), { record, override: mc });
+  if (sel.error) {
+    io.err(`setup refused — ${sel.detail}`);
+    return 2;
+  }
+  const pin = sel.pin;
+  io.out(`  pin: ${describeSelection(sel)}`);
+  for (const w of sel.warnings ?? []) io.err(`  WARNING: ${w}`);
+
+  const pre = await runDoctor({ env, fullVendor: false, mc });
   const blockers = pre.checks.filter((c) => c.status === 'FAIL' && SETUP_BLOCKERS.has(c.id));
   if (blockers.length) {
     io.err('setup refused — fix these first:');
@@ -89,13 +127,12 @@ async function cmdSetup(flags, env, io) {
   for (const w of pre.checks.filter((c) => c.status === 'WARN' && ['omo', 'senpi'].includes(c.id))) io.out(`  WARN ${w.title}: ${w.detail}`);
 
   // 1. pinned runtime
-  const v = verifyVendor(env, { full: true });
-  const vendorOk = v.present && v.version === PIN.magic_context && v.lockOk && !v.sums?.missingManifest && !v.sums?.bad?.length && !v.sums?.missing?.length;
-  if (vendorOk) io.out(`  = pinned runtime already installed and verified (${v.sums.checked} files)`);
-  else if (dry) io.out(`  would install ${PIN.package}@${PIN.magic_context} into ${v.dir} (npm install --ignore-scripts --save-exact)`);
+  const v = verifyVendor(env, pin, { full: true });
+  if (vendorOk(v)) io.out(`  = pinned runtime already installed and verified (${v.sums.checked} files)`);
+  else if (dry) io.out(`  would install ${pin.package}@${pin.magic_context} into ${v.dir} (npm install --ignore-scripts --save-exact)`);
   else {
-    io.out(`  installing ${PIN.package}@${PIN.magic_context} into ${v.dir}`);
-    installVendor(env, { log: (s) => io.out(`    ${s}`) });
+    io.out(`  installing ${pin.package}@${pin.magic_context} into ${v.dir}`);
+    installVendor(env, pin, { log: (s) => io.out(`    ${s}`) });
   }
 
   // 2. todowrite consent (shared config)
@@ -111,7 +148,7 @@ async function cmdSetup(flags, env, io) {
   }
 
   // 3. plan
-  const plan = planSetup(env, { memoryPolicy, todowrite });
+  const plan = planSetup(env, { pin, memoryPolicy, todowrite, record });
   const pending = plan.files.filter((f) => f.edits.length);
   io.out('');
   io.out(pending.length ? 'Planned changes (all recorded and revertible with `magic-omo uninstall`):' : 'Configuration already in place; nothing to change.');
@@ -133,9 +170,21 @@ async function cmdSetup(flags, env, io) {
   }
   const res = applySetup(plan, env, { log: io.out });
   io.out(`\n  install record: ${res.recordPath}`);
+  if (flags.prune) {
+    const gone = pruneVendor(env, pin.magic_context);
+    io.out(gone.length ? `  pruned other vendored runtimes: ${gone.join(', ')}` : '  nothing to prune');
+  } else {
+    const others = vendoredVersions(env).filter((x) => x !== pin.magic_context);
+    if (others.length) io.out(`  other vendored runtimes kept: ${others.join(', ')} (delete with \`magic-omo setup --prune\`)`);
+  }
   io.out('  Running OMO sessions keep their old setup until restarted. New sessions load Magic Context.');
+  if (record?.magic_context && record.magic_context !== pin.magic_context) {
+    // Pin switched: an installed (opt-in) guard must watch the new runtime. No-op when not installed.
+    const g = guardRefresh(env, { log: (s) => io.out(`    ${s}`) });
+    if (g.refreshed) io.out(`  guard units regenerated for ${pin.magic_context} (${g.kind})`);
+  }
 
-  const post = await runDoctor({ env });
+  const post = await runDoctor({ env, mc });
   io.out('');
   io.out(formatDoctor(post, { color: io.stdout.isTTY }));
   return post.ok ? 0 : 1;
@@ -155,7 +204,14 @@ async function cmdStatus(flags, env, io) {
   const r = await runDoctor({ env, fullVendor: false });
   const s = {
     live: r.live,
-    magic_context: PIN.magic_context,
+    live_paths: r.live_paths ?? [],
+    // Never present doctor's stand-in pin as "selected" when selection failed.
+    magic_context: r.pin?.magic_context ?? null,
+    pin_reason: r.pin_reason,
+    pin_error: r.pin_error ?? null,
+    pin_error_detail: r.pin_error_detail ?? null,
+    pin_warnings: r.pin_warnings ?? [],
+    recorded_magic_context: rec?.magic_context ?? null,
     record: rec ? paths.record : null,
     installed_at: rec?.installed_at ?? null,
     changed_files: rec?.files.map((f) => ({ file: f.file, edits: f.edits.length })) ?? [],
@@ -164,8 +220,11 @@ async function cmdStatus(flags, env, io) {
   };
   if (flags.json) io.out(JSON.stringify(s, null, 2));
   else {
-    io.out(`bridge: ${s.live ? 'LIVE (new OMO sessions load Magic Context)' : 'not installed'}`);
-    io.out(`pinned Magic Context: ${s.magic_context}`);
+    io.out(`bridge: ${s.live ? `LIVE (new OMO sessions load Magic Context: ${s.live_paths.join(', ')})` : 'not installed'}`);
+    if (s.pin_error) io.out(`selected Magic Context: NONE — pin selection failed (${s.pin_error}): ${s.pin_error_detail}`);
+    else io.out(`selected Magic Context: ${s.magic_context}${s.pin_reason ? ` (${s.pin_reason})` : ''}`);
+    for (const w of s.pin_warnings) io.out(`  WARNING: ${w}`);
+    if (s.recorded_magic_context && s.recorded_magic_context !== s.magic_context) io.out(`recorded install: Magic Context ${s.recorded_magic_context}`);
     if (rec) {
       io.out(`installed: ${s.installed_at}  record: ${s.record}`);
       for (const f of s.changed_files) io.out(`  ${f.file}: ${f.edits} recorded change(s)`);
@@ -185,7 +244,7 @@ async function cmdUninstall(flags, env, io) {
   io.out(`uninstall: ${r.status}${dry ? ' (dry run)' : ''}`);
   const kept = r.results.filter((x) => x.status === 'modified');
   for (const k of kept) io.out(`  kept ${k.path} in ${k.file}: you changed it after setup, so it is yours now`);
-  if (r.status !== 'not-installed') io.out('Running OMO sessions keep Magic Context until restarted. The vendored runtime stays in place (delete it with: rm -rf "' + allPaths(env).vendor + '").');
+  if (r.status !== 'not-installed') io.out('Running OMO sessions keep Magic Context until restarted. The vendored runtime stays in place (delete it with: rm -rf "' + allPaths(env).vendorRoot + '").');
   return 0;
 }
 
@@ -210,7 +269,15 @@ async function cmdGuard(sub, flags, env, io) {
 
 export async function main(argv = process.argv.slice(2), { env = process.env, ...ioOpts } = {}) {
   const io = makeIO(ioOpts);
-  const { cmd, sub, flags } = parseArgs(argv);
+  let parsed;
+  try {
+    parsed = parseArgs(argv);
+  } catch (e) {
+    if (!(e instanceof UsageError)) throw e;
+    io.err(`magic-omo: ${e.message}`);
+    return 2;
+  }
+  const { cmd, sub, flags } = parsed;
   try {
     if (flags.version || cmd === 'version') {
       io.out(PKG.version);
@@ -226,9 +293,32 @@ export async function main(argv = process.argv.slice(2), { env = process.env, ..
       case 'status': return await cmdStatus(flags, env, io);
       case 'uninstall': return await cmdUninstall(flags, env, io);
       case 'guard': return await cmdGuard(sub, flags, env, io);
+      case 'pins': {
+        const rows = PINS.map((p) => ({
+          magic_context: p.magic_context,
+          schema_fence: p.schema_fence,
+          integrity: p.integrity,
+          lockfile: p.lockfile,
+          default: p.magic_context === DEFAULT_PIN.magic_context,
+          combinations: rowsFor(p.magic_context).map((r) => ({ omo: r.omo, senpi: r.senpi, status: r.status, verified_on: r.verified_on, evidence: r.evidence ?? null })),
+        }));
+        if (flags.json) io.out(JSON.stringify({ default_pin: COMPAT.default_pin, pins: rows }, null, 2));
+        else {
+          for (const p of rows) {
+            io.out(`${p.magic_context}${p.default ? '  (default)' : ''}  schema fence v${p.schema_fence}`);
+            for (const c of p.combinations) {
+              const icon = c.status === 'verified' ? '✅' : c.status === 'broken' ? '❌' : '⚠️ ';
+              io.out(`  ${icon} omo-ai ${c.omo} / senpi ${c.senpi}${c.verified_on ? `  verified ${c.verified_on}` : ''}`);
+            }
+            if (!p.combinations.length) io.out('  (no matrix rows)');
+          }
+        }
+        return 0;
+      }
       case 'paths': {
-        const p = allPaths(env);
-        io.out(flags.json ? JSON.stringify(p, null, 2) : Object.entries(p).map(([k, v]) => `${k.padEnd(16)} ${v}`).join('\n'));
+        const r = readRecord(allPaths(env));
+        const p = allPaths(env, r?.magic_context ?? DEFAULT_PIN.magic_context);
+        io.out(flags.json ? JSON.stringify(p, null, 2) : Object.entries(p).filter(([, v]) => v !== undefined).map(([k, v]) => `${k.padEnd(16)} ${v}`).join('\n'));
         return 0;
       }
       default:

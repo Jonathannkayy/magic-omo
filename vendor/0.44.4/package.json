@@ -1,0 +1,9 @@
+{
+  "name": "magic-omo-vendor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned Magic Context Pi runtime used by magic-omo. Managed by `magic-omo setup`; do not edit.",
+  "dependencies": {
+    "@cortexkit/pi-magic-context": "0.44.4"
+  }
+}
