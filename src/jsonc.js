@@ -265,6 +265,22 @@ export function appendElement(text, path, value) {
   return { text: text.slice(0, last.end) + ins + text.slice(last.end), edit: { op: 'appendElement', path, value } };
 }
 
+/**
+ * Replace the (last) array element deep-equal to `prior` at `path` with `value`,
+ * in place. Revert restores `prior` at the same position.
+ */
+export function replaceElement(text, path, prior, value) {
+  const root = parseTree(text);
+  const node = findNode(root, path);
+  if (!node || node.type !== 'array') throw new JsoncError(`not an array: ${path.join('.')}`);
+  const want = JSON.stringify(prior);
+  const idx = node.elements.findLastIndex((e) => JSON.stringify(toValue(e)) === want);
+  if (idx < 0) throw new JsoncError(`no element ${want} in ${path.join('.')}`);
+  const el = node.elements[idx];
+  const raw = serialize(value, lineIndentAt(text, el.start), detectIndentUnit(text));
+  return { text: text.slice(0, el.start) + raw + text.slice(el.end), edit: { op: 'replaceElement', path, value, prior } };
+}
+
 /** Remove every array element deep-equal to `value` at `path`. */
 export function removeElement(text, path, value, { emptyInner } = {}) {
   let removed = 0;
@@ -344,6 +360,13 @@ export function revertEdit(text, edit) {
   if (edit.op === 'appendElement') {
     const r = removeElement(text, edit.path, edit.value, { emptyInner: edit.emptyInner });
     return { text: r.text, status: r.removed ? 'reverted' : 'absent' };
+  }
+  if (edit.op === 'replaceElement') {
+    const node = findNode(root, edit.path);
+    if (!node || node.type !== 'array') return { text, status: 'absent' };
+    const has = (v) => node.elements.some((e) => JSON.stringify(toValue(e)) === JSON.stringify(v));
+    if (!has(edit.value)) return { text, status: has(edit.prior) ? 'absent' : 'modified' };
+    return { text: replaceElement(text, edit.path, edit.value, edit.prior).text, status: 'reverted' };
   }
   throw new JsoncError(`unknown edit op ${edit.op}`);
 }
