@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline/promises';
 import { COMPAT, DEFAULT_PIN, PINS, PKG, rowsFor } from './compat.js';
 import { formatDoctor, formatSummary, runDoctor } from './doctor.js';
-import { guardInstall, guardRun, guardTargets, guardUninstall } from './guard.js';
+import { guardInstall, guardRefresh, guardRun, guardTargets, guardUninstall } from './guard.js';
 import { applySetup, describeEdit, planSetup, readRecord, uninstall } from './install.js';
 import { allPaths, vendoredVersions } from './paths.js';
 import { collectPeers, describeSelection, selectPin } from './pins.js';
@@ -165,6 +165,11 @@ async function cmdSetup(flags, env, io) {
     if (others.length) io.out(`  other vendored runtimes kept: ${others.join(', ')} (delete with \`magic-omo setup --prune\`)`);
   }
   io.out('  Running OMO sessions keep their old setup until restarted. New sessions load Magic Context.');
+  if (record?.magic_context && record.magic_context !== pin.magic_context) {
+    // Pin switched: an installed (opt-in) guard must watch the new runtime. No-op when not installed.
+    const g = guardRefresh(env, { log: (s) => io.out(`    ${s}`) });
+    if (g.refreshed) io.out(`  guard units regenerated for ${pin.magic_context} (${g.kind})`);
+  }
 
   const post = await runDoctor({ env, mc });
   io.out('');

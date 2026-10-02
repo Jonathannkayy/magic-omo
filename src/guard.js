@@ -6,7 +6,7 @@
 //   Linux: ~/.config/systemd/user/magic-omo-guard.{service,path,timer}
 //   macOS: ~/Library/LaunchAgents/io.github.jonathannkayy.magic-omo-guard.plist
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './compat.js';
 import { runDoctor } from './doctor.js';
@@ -185,6 +185,38 @@ export function guardInstall(env = process.env, { dryRun = false, activate = tru
     log(`launchctl load: ${r.ok ? 'ok' : r.out}`);
   }
   return t;
+}
+
+/** True when `guard install` wrote its units/agent for this env (opt-in state). */
+export function guardInstalled(env = process.env, platform = process.platform) {
+  const t = guardTargets(env, platform);
+  return t.kind !== 'unsupported' && Object.keys(t.files).some((f) => existsSync(f));
+}
+
+/**
+ * Re-generate an ALREADY installed guard so it watches the currently selected
+ * runtime (e.g. after setup switched the pin), and reload it. Never installs a
+ * guard that is not there (it stays opt-in), and does nothing when the units on
+ * disk already match. `exec(cmd, args, env)` is injectable for tests.
+ */
+export function guardRefresh(env = process.env, { platform = process.platform, exec = run, log = () => {} } = {}) {
+  if (!guardInstalled(env, platform)) return { refreshed: false, reason: 'not-installed' };
+  const t = guardTargets(env, platform);
+  const stale = Object.entries(t.files).filter(([f, c]) => !existsSync(f) || readFileSync(f, 'utf8') !== c);
+  if (!stale.length) return { refreshed: false, reason: 'up-to-date', kind: t.kind };
+  for (const [f, c] of stale) {
+    log(`rewrite ${f}`);
+    atomicWrite(f, c, { defaultMode: 0o644 });
+  }
+  const steps = t.kind === 'systemd'
+    ? [['systemctl', ['--user', 'daemon-reload']], ['systemctl', ['--user', 'restart', `${UNIT}.path`, `${UNIT}.timer`]]]
+    : [['launchctl', ['unload', Object.keys(t.files)[0]]], ['launchctl', ['load', '-w', Object.keys(t.files)[0]]]];
+  const results = steps.map(([cmd, args]) => {
+    const r = exec(cmd, args, env);
+    log(`${cmd} ${args.join(' ')}: ${r.ok ? 'ok' : r.out}`);
+    return { cmd: [cmd, ...args].join(' '), ...r };
+  });
+  return { refreshed: true, kind: t.kind, files: stale.map(([f]) => f), results };
 }
 
 export function guardUninstall(env = process.env, { dryRun = false, activate = true, platform = process.platform, log = () => {} } = {}) {
