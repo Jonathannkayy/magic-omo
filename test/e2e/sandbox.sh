@@ -34,7 +34,7 @@ command -v omo >/dev/null || { echo "omo not on PATH" >&2; exit 3; }
 command -v sqlite3 >/dev/null || { echo "sqlite3 required" >&2; exit 3; }
 
 SB=$(mktemp -d "${SANDBOX_PARENT:-${TMPDIR:-/tmp}}/magic-omo-e2e.XXXXXX")
-cleanup() { [ "$KEEP" = 1 ] && echo "kept $SB" || rm -rf "$SB"; }
+cleanup() { if [ "$KEEP" = 1 ]; then echo "kept $SB"; else rm -rf "$SB"; fi; }
 trap cleanup EXIT
 
 export HOME="$SB/home"
