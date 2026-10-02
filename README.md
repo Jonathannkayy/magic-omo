@@ -2,7 +2,7 @@
 
 # magic-omo
 
-**Magic Context for OMO Native: one memory shared by OMO, OpenCode and Hermes.**
+**The best harness, with a memory that never forgets. One brain shared by OMO, OpenCode and Hermes.**
 
 Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Native](https://github.com/code-yeongyu/oh-my-openagent)
 (the Senpi-based `omo` CLI). It shares the *same* `context.db` your other agents already use, so memories, notes and compartments carry over between them.
@@ -20,8 +20,40 @@ Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Nati
 
 </div>
 
-> [!IMPORTANT]
-> **Unofficial community bridge.** It is not affiliated with or endorsed by cortexkit, oh-my-openagent, or Senpi. It loads Magic Context's **official Pi runtime unmodified** and does nothing else to it.
+## Two of the best tools in agentic coding, finally together
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 😺 OMO Native
+**by [Q (Yeongyu Kim)](https://github.com/code-yeongyu)**
+
+The harness that made "just let the agent cook" a real workflow. [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) turns one model into a team:
+
+- **Specialist agents** for exploration, planning, architecture, implementation and review, each routed to the model that's best at it
+- **`ulw-plan` → `ulw-execute`**: adversarial planning, then evidence-driven execution that doesn't stop at "looks done"
+- **`review-work`** and **`hyperplan`**: multi-angle reviews and five-member cross-critique before anything ships
+- **19 built-in skills**, background agents, LSP, AST-grep, and a Senpi engine built for long, unattended runs
+
+</td>
+<td width="50%" valign="top">
+
+### 🧠 Magic Context
+**by [Ufuk Altinok / CortexKit](https://github.com/cortexkit/magic-context)**
+
+*"Unbounded context. Memory that manages itself. One session, for life."* The hippocampus for coding agents:
+
+- **No context wall**: a background historian folds old turns into searchable compartments while you keep working
+- **Durable project memory**, notes and smart notes that resurface exactly when they matter
+- **A dreamer** that consolidates, verifies and curates memory overnight
+- **One store for every harness**: OpenCode, Pi and Hermes already share it
+
+</td>
+</tr>
+</table>
+
+**magic-omo is the missing link.** It loads Magic Context's official runtime, unmodified, into OMO Native, so OMO's specialist agents get Magic Context's memory, and every memory OMO makes is instantly there in OpenCode and Hermes too. All credit for the hard parts goes to Q and Ufuk; this project just makes them talk.
 
 ## Why
 
@@ -39,7 +71,7 @@ Magic Context gives coding agents managed context with no hard wall: background 
 ```mermaid
 flowchart LR
   subgraph OMO["OMO Native (omo-ai)"]
-    S[Senpi engine] -->|extensions[] local path| X["@cortexkit/pi-magic-context<br/>(pinned, vendored, unmodified)"]
+    S[Senpi engine] -->|"extensions[] · local path"| X["@cortexkit/pi-magic-context<br/>(pinned, vendored, unmodified)"]
   end
   subgraph OC[OpenCode]
     P["@cortexkit/opencode-magic-context"]
