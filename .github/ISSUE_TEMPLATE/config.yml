@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & discussion
+    url: https://github.com/Jonathannkayy/magic-omo/discussions
+    about: Ask and answer questions here.
+  - name: Magic Context bug (upstream)
+    url: https://github.com/cortexkit/magic-context/issues
+    about: Bugs in Magic Context itself.
+  - name: OMO Native / oh-my-openagent bug (upstream)
+    url: https://github.com/code-yeongyu/oh-my-openagent/issues
+    about: Bugs in OMO Native or Senpi.
