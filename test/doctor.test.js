@@ -11,7 +11,7 @@ import { parse } from '../src/jsonc.js';
 import { parseProbeOutput } from '../src/omo.js';
 import { allPaths } from '../src/paths.js';
 import { pluginEntryVersion } from '../src/peers.js';
-import { capture, FIX, makeWorld } from './helpers.js';
+import { PIN, capture, FIX, makeWorld } from './helpers.js';
 
 const fx = (f) => readFileSync(path.join(FIX, f), 'utf8');
 const byId = (r, id) => r.checks.filter((c) => c.id === id);
@@ -98,16 +98,30 @@ test('schema fence: buildFence reads LATEST_SUPPORTED_VERSION; DB newer than fen
   t.after(w.cleanup);
   const io = capture();
   assert.equal(await main(['setup', '--yes'], { env: w.env, ...io }), 0, io.chunks.err);
-  assert.equal(buildFence(allPaths(w.env).extension), 90);
+  assert.equal(buildFence(allPaths(w.env, PIN.magic_context).extension), 90);
   const db = makeDb(w, [89, 90]);
   assert.deepEqual(await schemaVersion(db, w.env), { version: 90, via: 'node:sqlite' });
   assert.equal(byId(await runDoctor({ env: w.env }), 'db')[0].status, 'PASS');
   const d2 = new sqlite.DatabaseSync(db);
   d2.exec('insert into schema_migrations values (91)');
   d2.close();
+  // A v91 DB is not a failure any more: it selects the 0.44.4 pin, whose fence is v91.
   const r = await runDoctor({ env: w.env });
-  assert.equal(byId(r, 'db')[0].status, 'FAIL');
-  assert.equal(byId(r, 'db')[0].hard, true);
+  assert.equal(byId(r, 'pin')[0].status, 'PASS');
+  assert.equal(r.pin.magic_context, '0.44.4');
+  assert.match(byId(r, 'pin')[0].detail, /schema v91/);
+  // The installed 0.43.2 tree is no longer the selected one: vendor reports it missing
+  // (INFO, since the new path is not referenced yet) and the stale entry is flagged.
+  assert.equal(byId(r, 'vendor')[0].status, 'INFO');
+  assert.equal(byId(r, 'pin-swap')[0].status, 'WARN');
+  // A schema beyond EVERY pin still FAILs hard.
+  const d3 = new sqlite.DatabaseSync(db);
+  d3.exec('insert into schema_migrations values (999)');
+  d3.close();
+  const far = await runDoctor({ env: w.env });
+  assert.equal(byId(far, 'pin')[0].status, 'FAIL');
+  assert.equal(byId(far, 'pin')[0].hard, true);
+  assert.match(byId(far, 'pin')[0].detail, /newer than every pin/);
 });
 
 test('schemaVersion falls back to sqlite3 CLI or skips cleanly', { skip: !sqlite && 'node:sqlite unavailable' }, async (t) => {
@@ -148,7 +162,7 @@ test('conflict detection: duplicate Magic Context loaders FAIL', async (t) => {
   mkdirSync(path.join(w.home, '.omo', 'agent', 'extensions', 'magic-context'), { recursive: true });
   const r = await runDoctor({ env: w.env });
   assert.equal(byId(r, 'double-load')[0].status, 'FAIL');
-  assert.equal(otherMagicContextLoaders(s, allPaths(w.env)).length, 2);
+  assert.equal(otherMagicContextLoaders(s, allPaths(w.env, PIN.magic_context)).length, 2);
 });
 
 test('same-series rule: OpenCode plugin + magic-hermes compat', async (t) => {
@@ -171,7 +185,7 @@ test('vendor tamper detected; guard auto-uninstalls only when live + hard fail',
   t.after(w.cleanup);
   const io = capture();
   await main(['setup', '--yes'], { env: w.env, ...io });
-  const p = allPaths(w.env);
+  const p = allPaths(w.env, PIN.magic_context);
   let err = '';
   const quiet = await guardRun(w.env, { stderr: { write: (s) => { err += s; } } });
   assert.equal(quiet.action, 'none');

@@ -33,10 +33,25 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: tarball
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: repo
+      - name: Release notes source
+        id: notes
+        run: |
+          if [ -s repo/RELEASE_NOTES.md ]  # non-empty; an empty file would publish a blank body; then
+            echo "body_path=repo/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+            echo "generate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "body_path=" >> "$GITHUB_OUTPUT"
+            echo "generate=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: '*.tgz'
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.body_path }}
+          generate_release_notes: ${{ steps.notes.outputs.generate == 'true' }}
   npm-publish:
     # Gated: requires the NPM_TOKEN secret AND the protected "npm" environment
     # (configure required reviewers so a maintainer approves every publish).

@@ -94,7 +94,22 @@ npx magic-omo doctor     # PASS / WARN / FAIL / INFO
 # restart your OMO sessions (running sessions keep their old setup)
 ```
 
-Requirements: Node.js ≥ 20, OMO Native, and `npm`, which is used once to fetch the pinned runtime. Useful flags: `--dry-run` writes nothing. `--yes` runs non-interactively. `--keep-omo-memory` leaves OMO's automatic memory on. `--todowrite` / `--no-todowrite` decide the shared-config question up front.
+Requirements: Node.js ≥ 20, OMO Native, and `npm`, which is used once to fetch the pinned runtime. Useful flags: `--dry-run` writes nothing. `--yes` runs non-interactively. `--keep-omo-memory` leaves OMO's automatic memory on. `--todowrite` / `--no-todowrite` decide the shared-config question up front. `--mc <version>` pins a specific Magic Context version instead of the one setup picks, and `--prune` deletes the vendored runtimes you no longer use.
+
+## Always compatible
+
+Magic Context moves fast, and every process that shares one `context.db` has to move together. magic-omo is built so that is never your problem:
+
+- **Several Magic Context versions, side by side.** magic-omo ships a pinned, lockfile-integrity-checked runtime for each supported series, each in its own vendored tree. Which OMO combinations are end-to-end verified is spelled out in the compatibility table below. Nothing is downloaded twice, and switching back is instant.
+- **Setup picks the version your machine already runs.** Before touching anything, setup reads the Magic Context plugin OpenCode loads, the series magic-hermes declares, and the schema version of the shared database, then installs the pin that matches them. It never silently jumps to a newer series — a newer build migrates the shared database forward and would lock your other hosts out. If your hosts disagree with each other, setup refuses and tells you exactly who runs what.
+- **Upstream is checked every day.** A scheduled contract check re-verifies, statically and without a single model call, that Senpi still dispatches `session_before_compact`, still skips local and pinned sources so `omo update` cannot move the bridge, that OMO still honours the agent-dir environment variables and the `[native].memory` keys magic-omo switches off, and that the Magic Context build still loads as a Pi extension with the schema fence we recorded.
+- **New upstream releases are tested end to end before they are pinned.** The maintainer bot runs the real sandbox — isolated home, isolated store, a snapshot of the database — against the new combination, and only then marks the row verified, updates the compatibility table and ships a release.
+- **`doctor` knows every verified combination.** It tells you which pin was selected and why, lists all supported pins, and flags any combination that is not verified yet (WARN, or FAIL with `--strict`).
+
+```bash
+magic-omo pins            # every supported Magic Context version and its verified combinations
+magic-omo setup --mc 0.44.4   # override the choice
+```
 
 ## What setup changes
 
@@ -102,7 +117,7 @@ Every row is backed up first. Each file is written atomically (temp file plus re
 
 | File | Change | Why | Default |
 |---|---|---|---|
-| `~/.local/share/magic-omo/vendor/` | `npm install --ignore-scripts --save-exact @cortexkit/pi-magic-context@0.43.2`, integrity checked against the pin, then frozen with `SHA256SUMS` | Same bytes on every machine; nothing global | always |
+| `~/.local/share/magic-omo/vendor/<version>/` | `npm install --ignore-scripts --save-exact @cortexkit/pi-magic-context@<selected pin>`, integrity checked against the pin, then frozen with `SHA256SUMS` | Same bytes on every machine; nothing global. Each supported version gets its own tree, so switching series never re-downloads | always |
 | `$OMO_AGENT_DIR/settings.json` | append the **absolute local path** of the pinned package to `extensions[]` | Senpi's update checker skips `local` and pinned sources, so `omo update` never moves it | always |
 | `$OMO_AGENT_DIR/settings.json` | **nothing else** — `compaction.enabled` is deliberately left as it is | OMO needs its own compaction flag on to recover an oversized resumed session; Magic Context still cancels every native compaction ([why](#why-native-compaction-stays-on)) | never changed |
 | `~/.omo/omo.jsonc` | `"[native]".memory.{facts,recall,nudge,reflection,dream}.enabled = false`, merged in with comments preserved | One automatic memory injector, not two | on (`--keep-omo-memory` to skip) |
@@ -193,12 +208,14 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
   PASS  Senpi engine: 2026.9.30 — verified
   PASS  Senpi extension hook contract: session_before_compact is dispatched
   PASS  Update immunity of local extension: Senpi update checker skips local/pinned sources, so `omo update` never moves the bridge
+  PASS  Magic Context pin: Magic Context 0.43.2 — matches OpenCode + magic-hermes (series 0.43)
+  INFO  Supported Magic Context pins: 0.44.4 (fence v91, 0 verified row(s)); 0.43.2 (fence v90, 1 verified row(s)); default 0.43.2
   PASS  Pinned Magic Context Pi runtime: @cortexkit/pi-magic-context@0.43.2, integrity matches pin, 4223 files match SHA256SUMS
   PASS  Build schema fence: build supports schema <= v90 (pin v90)
   PASS  Shared context.db: schema v90 <= fence v90 (read-only via node:sqlite)
   PASS  OpenCode Magic Context: 0.43.2 via package.json (@cortexkit/opencode-magic-context) (bridge 0.43.2)
   PASS  magic-hermes: supported series 0.43 (bridge 0.43)
-  PASS  Bridge loaded by OMO: extensions[] contains ~/.local/share/magic-omo/vendor/node_modules/@cortexkit/pi-magic-context
+  PASS  Bridge loaded by OMO: extensions[] contains ~/.local/share/magic-omo/vendor/0.43.2/node_modules/@cortexkit/pi-magic-context
   PASS  OMO native compaction setting: compaction.enabled is on (recovery path kept; Magic Context cancels native compaction via session_before_compact)
   PASS  OMO automatic memory: [native].memory facts/recall/nudge/reflection/dream are off; curated memory untouched
   INFO  Model historian.pi.model: claude-sonnet-5-5 — bare id …; verify with --probe-models
@@ -211,15 +228,28 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
 ## Compatibility
 
 <!-- BEGIN GENERATED: compat (npm run compat:gen) -->
-| Magic Context (`@cortexkit/pi-magic-context`) | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |
+| Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |
+|---|---|---|---|---|
+| `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | — (not yet) |
+| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.7 / senpi 2026.9.30 |
+
+<details>
+<summary>Full verification matrix</summary>
+
+| Magic Context | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Notes |
 |---|---|---|---|---|---|---|
-| 0.43.2 | v90 | 5.1.7 | 2026.9.30 | ✅ verified | 2026-10-01 | Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits. |
-| 0.43.2 | v90 | 5.1.8 | unknown | ⚠️ unverified | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
+| **0.44.4** | v91 | `5.1.9` | `2026.10.1-3` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+|  |  | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+|  |  | `5.1.7` | `2026.9.30` | ⚠️ unverified | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
+| **0.43.2** **(default)** | v90 | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
+|  |  | `5.1.7` | `2026.9.30` | ✅ verified | 2026-10-01 | Sandbox-verified: extension loads (harness=pi), ctx_* tools registered, writes land in the configured store, historian published a compartment, [native].memory policy suppresses OMO automatic memory while explicit `memory` still commits. |
+
+</details>
 <!-- END GENERATED: compat -->
 
 Full details are in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md), which is generated from [`compat.json`](compat.json).
 
-**Same-series rule:** every process that shares `context.db` (OMO through magic-omo, OpenCode, Hermes, Pi) must run the same Magic Context `major.minor`. A DB schema newer than this build's fence fails closed. `doctor` checks both.
+**Same-series rule:** every process that shares `context.db` (OMO through magic-omo, OpenCode, Hermes, Pi) must run the same Magic Context `major.minor`. A DB schema newer than the selected build's fence fails closed, and a newer build migrates the database forward and locks older hosts out — which is why setup follows your other hosts rather than the newest release. `doctor` checks all of it.
 
 ## Guard (optional)
 

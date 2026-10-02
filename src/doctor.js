@@ -2,13 +2,14 @@
 // read-only; the optional model probe is the only thing that executes `omo`).
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { COMPAT, hostStatus, PIN, PKG, series } from './compat.js';
+import { COMPAT, DEFAULT_PIN, hostStatus, PINS, PKG, rowsFor, series, verifiedHosts } from './compat.js';
 import { buildFence, schemaVersion } from './db.js';
 import { autoMemoryState, OMO_AUTO_MEMORY_SUBSYSTEMS, safeParse } from './edits.js';
 import { classifyModel, collectPiModels } from './historian.js';
 import { locateOmo, probeModel, senpiContract } from './omo.js';
-import { allPaths } from './paths.js';
-import { hermesCompat, openCodeMagicContext } from './peers.js';
+import { readRecord } from './install.js';
+import { allPaths, ownExtensionPaths } from './paths.js';
+import { collectPeers, describeSelection, peerSeries, selectPin, unknownPeers } from './pins.js';
 import { verifyVendor } from './vendor.js';
 
 export const STATUS_ORDER = { PASS: 0, INFO: 1, WARN: 2, FAIL: 3 };
@@ -22,7 +23,7 @@ function readText(p) {
 }
 
 /** Is the bridge's extension path present in OMO settings? */
-export function bridgeState(paths) {
+export function bridgeState(paths, extraExts = []) {
   const text = readText(paths.settings);
   if (text === undefined) return { settingsExists: false, live: false };
   const p = safeParse(text);
@@ -33,14 +34,16 @@ export function bridgeState(paths) {
     settingsExists: true,
     settings: s,
     live: exts.includes(paths.extension),
+    liveOther: exts.filter((e) => e !== paths.extension && extraExts.includes(e)),
     compactionEnabled: s.compaction?.enabled,
   };
 }
 
 /** Other ways Magic Context could ALSO be loaded into OMO (double-load conflict). */
-export function otherMagicContextLoaders(settings, paths) {
+export function otherMagicContextLoaders(settings, paths, ignore = []) {
   const found = [];
-  const mc = (x) => typeof x === 'string' && /magic-context/i.test(x) && x !== paths.extension;
+  const skip = new Set([paths.extension, ...ignore]);
+  const mc = (x) => typeof x === 'string' && /magic-context/i.test(x) && !skip.has(x);
   for (const e of Array.isArray(settings?.extensions) ? settings.extensions : []) if (mc(e)) found.push(`settings extensions[]: ${e}`);
   for (const p of Array.isArray(settings?.packages) ? settings.packages : []) {
     const src = typeof p === 'string' ? p : p?.source;
@@ -59,10 +62,20 @@ export function otherMagicContextLoaders(settings, paths) {
  *   env, strict (unverified host => FAIL), probe (run the opt-in model probe),
  *   fullVendor (hash every vendored file; default true).
  */
-export async function runDoctor({ env = process.env, strict = false, probe = false, fullVendor = true, omoLocator = locateOmo } = {}) {
+export async function runDoctor({ env = process.env, strict = false, probe = false, fullVendor = true, omoLocator = locateOmo, mc } = {}) {
   const checks = [];
   const add = (id, status, title, detail, extra = {}) => checks.push({ id, status, title, detail, hard: false, ...extra });
-  const paths = allPaths(env);
+  const base = allPaths(env);
+  const record = readRecord(base);
+
+  // -- which pin applies here
+  const sv = await schemaVersion(base.db, env);
+  const peers = collectPeers(env, { db: sv });
+  const sel = selectPin(env, peers, { record, override: mc });
+  // Without a valid selection, DEFAULT_PIN is only a stand-in for the per-pin checks
+  // below; it is never reported as the selected pin (report.pin is null then).
+  const pin = sel.pin ?? DEFAULT_PIN;
+  const paths = allPaths(env, pin.magic_context);
 
   // -- runtime
   const nodeMajor = Number(process.versions.node.split('.')[0]);
@@ -72,21 +85,32 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
       `MC config ${paths.mcConfig}; store ${paths.storageDir} [${paths.storageSource}]`,
     { data: paths });
 
+  if (sel.error) {
+    add('pin', 'FAIL', 'Magic Context pin selection', sel.detail, { hard: true, data: { error: sel.error, peers: peerSeries(peers), unknown: unknownPeers(peers) } });
+  } else {
+    add('pin', sel.warnings?.length ? 'WARN' : 'PASS', 'Magic Context pin', describeSelection(sel), { data: { magic_context: pin.magic_context, schema_fence: pin.schema_fence, reason: sel.reason, warnings: sel.warnings ?? [] } });
+  }
+  add('pins', 'INFO', 'Supported Magic Context pins',
+    PINS.map((p) => `${p.magic_context} (fence v${p.schema_fence}, ${rowsFor(p.magic_context).filter((r) => r.status === 'verified').length} verified row(s))`).join('; ')
+      + `; default ${DEFAULT_PIN.magic_context}`, { data: PINS });
+
   // -- host
   const omo = omoLocator(env);
   if (!omo.pkgRoot) {
     add('omo', 'FAIL', 'OMO Native (omo-ai)', `not found (binary: ${omo.bin ?? 'not on PATH'}). Install OMO Native or set MAGIC_OMO_OMO_PKG.`, { hard: true });
   } else {
-    const st = hostStatus('omo', omo.version);
+    const st = hostStatus('omo', omo.version, pin.magic_context);
     const status = st === 'verified' ? 'PASS' : strict ? 'FAIL' : 'WARN';
-    add('omo', status, 'OMO Native (omo-ai)', `${omo.version} at ${omo.pkgRoot} — ${st === 'verified' ? 'verified' : `not verified with Magic Context ${PIN.magic_context} (verified: ${PIN.omo})`}`, { hard: status === 'FAIL', data: { version: omo.version, bin: omo.bin } });
+    const known = verifiedHosts('omo', pin.magic_context);
+    add('omo', status, 'OMO Native (omo-ai)', `${omo.version} at ${omo.pkgRoot} — ${st === 'verified' ? 'verified' : `not verified with Magic Context ${pin.magic_context} (verified: ${known.join(', ') || 'none yet'})`}`, { hard: status === 'FAIL', data: { version: omo.version, bin: omo.bin } });
   }
   if (omo.pkgRoot && !omo.senpiRoot) {
     add('senpi', 'FAIL', 'Senpi engine', 'not found under omo-ai', { hard: true });
   } else if (omo.senpiRoot) {
-    const st = hostStatus('senpi', omo.senpiVersion);
+    const st = hostStatus('senpi', omo.senpiVersion, pin.magic_context);
     const status = st === 'verified' ? 'PASS' : strict ? 'FAIL' : 'WARN';
-    add('senpi', status, 'Senpi engine', `${omo.senpiVersion} — ${st === 'verified' ? 'verified' : `not verified (verified: ${PIN.senpi})`}`, { hard: status === 'FAIL', data: { version: omo.senpiVersion } });
+    const known = verifiedHosts('senpi', pin.magic_context);
+    add('senpi', status, 'Senpi engine', `${omo.senpiVersion} — ${st === 'verified' ? 'verified' : `not verified (verified: ${known.join(', ') || 'none yet'})`}`, { hard: status === 'FAIL', data: { version: omo.senpiVersion } });
     const c = senpiContract(omo.senpiRoot);
     add('senpi-hooks', c.compactHook === false ? 'FAIL' : c.compactHook ? 'PASS' : 'WARN', 'Senpi extension hook contract',
       c.compactHook ? 'session_before_compact is dispatched' : c.compactHook === false ? 'session_before_compact no longer dispatched; Magic Context cannot own compaction' : 'runner.js unreadable', { hard: c.compactHook === false });
@@ -97,30 +121,45 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
   }
 
   // -- vendored extension
-  const v = verifyVendor(env, { full: fullVendor });
-  const bs = bridgeState(paths);
+  const v = verifyVendor(env, pin, { full: fullVendor });
+  // Every runtime path magic-omo could have put into extensions[] other than the
+  // selected one: every supported pin, anything vendored, the legacy flat layout and
+  // the recorded path. Liveness must not depend on pin selection having succeeded.
+  const otherExts = ownExtensionPaths(env, { versions: PINS.map((p) => p.magic_context), recorded: [record?.extension] })
+    .filter((e) => e !== paths.extension);
+  const bs = bridgeState(paths, otherExts);
+  const anyLive = Boolean(bs.live || bs.liveOther?.length);
   if (!v.present) {
     add('vendor', bs.live ? 'FAIL' : 'INFO', 'Pinned Magic Context Pi runtime', `not installed at ${v.ext}${bs.live ? ' but OMO settings reference it' : ' (run `magic-omo setup`)'}`, { hard: bs.live });
   } else {
     const problems = [];
-    if (v.version !== PIN.magic_context) problems.push(`version ${v.version} != pin ${PIN.magic_context}`);
+    if (v.version !== pin.magic_context) problems.push(`version ${v.version} != pin ${pin.magic_context}`);
     if (!v.lockOk) problems.push(`lockfile version/integrity does not match pin (${v.lock?.version ?? 'none'} ${v.lock?.integrity?.slice(0, 19) ?? ''})`);
     if (v.sums?.missingManifest) problems.push('SHA256SUMS manifest missing');
     if (v.sums?.bad?.length) problems.push(`${v.sums.bad.length} file(s) changed vs SHA256SUMS (e.g. ${v.sums.bad[0]})`);
     if (v.sums?.missing?.length) problems.push(`${v.sums.missing.length} file(s) missing (e.g. ${v.sums.missing[0]})`);
     add('vendor', problems.length ? 'FAIL' : 'PASS', 'Pinned Magic Context Pi runtime',
-      problems.length ? problems.join('; ') : `${PIN.package}@${v.version}, integrity matches pin${v.sums?.checked ? `, ${v.sums.checked} files match SHA256SUMS` : ''}`,
+      problems.length ? problems.join('; ') : `${pin.package}@${v.version}, integrity matches pin${v.sums?.checked ? `, ${v.sums.checked} files match SHA256SUMS` : ''}`,
       { hard: problems.length > 0 });
   }
 
   // -- schema fence
   const fence = v.present ? buildFence(v.ext) : undefined;
   if (v.present) {
-    add('fence-build', fence === PIN.schema_fence ? 'PASS' : 'FAIL', 'Build schema fence',
-      fence === undefined ? 'LATEST_SUPPORTED_VERSION not found in vendored dist' : `build supports schema <= v${fence} (pin v${PIN.schema_fence})`, { hard: fence !== PIN.schema_fence });
+    add('fence-build', fence === pin.schema_fence ? 'PASS' : 'FAIL', 'Build schema fence',
+      fence === undefined ? 'LATEST_SUPPORTED_VERSION not found in vendored dist' : `build supports schema <= v${fence} (pin v${pin.schema_fence})`, { hard: fence !== pin.schema_fence });
   }
-  const effFence = fence ?? PIN.schema_fence;
-  const sv = await schemaVersion(paths.db, env);
+  const effFence = fence ?? pin.schema_fence;
+  // A loaded runtime that is NOT the selected one still opens the shared database:
+  // if the database is beyond that runtime's fence it fails closed right now.
+  for (const e of bs.liveOther ?? []) {
+    const lp = PINS.find((p) => allPaths(env, p.magic_context).extension === e);
+    const lf = lp ? (buildFence(e) ?? lp.schema_fence) : buildFence(e);
+    if (typeof sv.version === 'number' && typeof lf === 'number' && sv.version > lf) {
+      add('db-live-runtime', 'FAIL', 'Loaded runtime vs shared context.db',
+        `OMO loads ${e} (fence v${lf}) but the shared context.db is at schema v${sv.version}: that runtime fails closed`, { hard: true });
+    }
+  }
   if (sv.missing) add('db', 'INFO', 'Shared context.db', `no database yet at ${paths.db} (created on first Magic Context run)`);
   else if (sv.skipped) add('db', 'INFO', 'Shared context.db', `schema check skipped: ${sv.skipped}`);
   else if (sv.error) add('db', 'WARN', 'Shared context.db', `could not read schema (${sv.via}): ${sv.error}`);
@@ -128,15 +167,15 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
   else add('db', 'PASS', 'Shared context.db', `schema v${sv.version} <= fence v${effFence} (read-only via ${sv.via})`, { data: sv });
 
   // -- same-series rule
-  const mySeries = series(PIN.magic_context);
-  const oc = openCodeMagicContext(env);
+  const mySeries = series(pin.magic_context);
+  const oc = peers.openCode;
   if (!oc.length) add('series-opencode', 'INFO', 'OpenCode Magic Context', 'no Magic Context plugin entry found in OpenCode config');
   for (const o of oc) {
     if (o.error) add('series-opencode', 'WARN', 'OpenCode Magic Context', `${o.file}: ${o.error}`);
     else if (!o.version) add('series-opencode', 'WARN', 'OpenCode Magic Context', `${o.entry}: version not detectable (unpinned/latest?); must be series ${mySeries}`);
-    else add('series-opencode', series(o.version) === mySeries ? 'PASS' : 'FAIL', 'OpenCode Magic Context', `${o.version} via ${o.via} (bridge ${PIN.magic_context})`, { hard: series(o.version) !== mySeries });
+    else add('series-opencode', series(o.version) === mySeries ? 'PASS' : 'FAIL', 'OpenCode Magic Context', `${o.version} via ${o.via} (bridge ${pin.magic_context})`, { hard: series(o.version) !== mySeries });
   }
-  const mh = hermesCompat(env);
+  const mh = peers.hermes;
   if (!mh) add('series-hermes', 'INFO', 'magic-hermes', 'not found (optional)');
   else if (mh.error) add('series-hermes', 'WARN', 'magic-hermes', `${mh.file}: ${mh.error}`);
   else add('series-hermes', mh.series === mySeries ? 'PASS' : 'FAIL', 'magic-hermes', `supported series ${mh.series} (bridge ${mySeries}) — ${mh.file}`, { hard: mh.series !== mySeries });
@@ -147,14 +186,30 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
   } else if (bs.parseError) {
     add('settings', 'FAIL', 'OMO agent settings', `${paths.settings}: ${bs.parseError}`, { hard: true });
   } else {
-    add('bridge', bs.live ? 'PASS' : 'INFO', 'Bridge loaded by OMO', bs.live ? `extensions[] contains ${paths.extension}` : 'not installed (extensions[] does not reference the pinned runtime)', { data: { live: bs.live } });
-    if (bs.live) {
+    add('bridge', bs.live ? 'PASS' : anyLive ? 'WARN' : 'INFO', 'Bridge loaded by OMO',
+      bs.live ? `extensions[] contains ${paths.extension}`
+        : anyLive ? `extensions[] loads a magic-omo runtime that is not the selected one (${bs.liveOther.join(', ')})`
+          : 'not installed (extensions[] does not reference the pinned runtime)',
+      { data: { live: bs.live, liveOther: bs.liveOther ?? [] } });
+    if (bs.liveOther?.length && !bs.live) {
+      add('pin-swap', 'WARN', 'Older magic-omo runtime still loaded', `extensions[] also references ${bs.liveOther.join(', ')}; re-run \`magic-omo setup\` to swap it for the selected pin`);
+    }
+    if (anyLive) {
       add('compaction', bs.compactionEnabled === false ? 'WARN' : 'PASS', 'OMO native compaction setting',
         bs.compactionEnabled === false
           ? 'compaction.enabled=false: OMO\'s resume check has no recovery path, so a session that outgrew the window refuses every turn. Set compaction.enabled=true; Magic Context still cancels native compaction.'
           : 'compaction.enabled is on (recovery path kept; Magic Context cancels native compaction via session_before_compact)');
     }
-    const others = otherMagicContextLoaders(bs.settings, paths);
+    // A stale magic-omo runtime is only a pending swap while the selected one is NOT
+    // loaded; once the selected runtime is live too, OMO loads Magic Context twice.
+    // That is a hard failure (the guard acts on it), but a separate id from
+    // `double-load` because `magic-omo setup` owns both paths and repairs it.
+    if (bs.live && bs.liveOther?.length) {
+      add('pin-duplicate', 'FAIL', 'Two magic-omo runtimes loaded',
+        `extensions[] references the selected ${paths.extension} AND ${bs.liveOther.join(', ')}: OMO would load Magic Context twice. Re-run \`magic-omo setup\` to drop the stale one.`,
+        { hard: true });
+    }
+    const others = otherMagicContextLoaders(bs.settings, paths, otherExts);
     if (others.length) add('double-load', 'FAIL', 'Duplicate Magic Context loaders', others.join('; '), { hard: true });
   }
 
@@ -166,12 +221,12 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
     else {
       const st = autoMemoryState(p.value);
       const on = OMO_AUTO_MEMORY_SUBSYSTEMS.filter((k) => st[k] !== 'off');
-      add('omo-memory', on.length === 0 ? 'PASS' : bs.live ? 'WARN' : 'INFO', 'OMO automatic memory',
+      add('omo-memory', on.length === 0 ? 'PASS' : anyLive ? 'WARN' : 'INFO', 'OMO automatic memory',
         on.length === 0 ? '[native].memory facts/recall/nudge/reflection/dream are off; curated memory (`memory` tool, soul/persona) untouched'
           : `still on: ${on.join(', ')}. Two automatic memory injectors duplicate context (use \`magic-omo setup\`, or keep deliberately with --keep-omo-memory)`);
     }
   } else {
-    add('omo-memory', bs.live ? 'WARN' : 'INFO', 'OMO automatic memory', `${paths.omoConfig} not found: OMO automatic memory runs with defaults (on)`);
+    add('omo-memory', anyLive ? 'WARN' : 'INFO', 'OMO automatic memory', `${paths.omoConfig} not found: OMO automatic memory runs with defaults (on)`);
   }
 
   // -- Magic Context config: historian/dreamer + todowrite
@@ -218,12 +273,22 @@ export async function runDoctor({ env = process.env, strict = false, probe = fal
   return {
     tool: 'magic-omo',
     version: PKG.version,
-    pin: PIN,
+    pin: sel.pin ?? null,
+    pin_reason: sel.reason ?? null,
+    pin_error: sel.error ?? null,
+    pin_error_detail: sel.error ? sel.detail : null,
+    pin_warnings: sel.warnings ?? [],
+    checked_pin: pin.magic_context,
+    pins: PINS.map((p) => p.magic_context),
     compat_rows: COMPAT.matrix.length,
     strict,
     ok: worst !== 'FAIL',
     worst,
-    live: bs.live,
+    // Any magic-omo runtime loaded by OMO (selected or not): the guard keys its
+    // auto-uninstall off this, so it must not depend on pin selection succeeding.
+    live: anyLive,
+    live_selected: Boolean(bs.live),
+    live_paths: [...(bs.live ? [paths.extension] : []), ...(bs.liveOther ?? [])],
     counts: Object.fromEntries(['PASS', 'INFO', 'WARN', 'FAIL'].map((s) => [s, checks.filter((c) => c.status === s).length])),
     checks,
   };
@@ -237,7 +302,10 @@ export function formatSummary(report) {
 }
 
 export function formatDoctor(report, { color = false } = {}) {
-  const lines = [`magic-omo ${report.version} doctor — Magic Context ${report.pin.magic_context} (schema fence v${report.pin.schema_fence})`, ''];
+  const head = report.pin
+    ? `Magic Context ${report.pin.magic_context} (schema fence v${report.pin.schema_fence})`
+    : `NO Magic Context pin selected (${report.pin_error}); per-pin checks ran against ${report.checked_pin}`;
+  const lines = [`magic-omo ${report.version} doctor — ${head}`, ''];
   for (const c of report.checks) {
     const tag = color ? `${COLORS[c.status]}${c.status.padEnd(4)}\x1b[0m` : c.status.padEnd(4);
     lines.push(`  ${tag}  ${c.title}: ${c.detail}`);
