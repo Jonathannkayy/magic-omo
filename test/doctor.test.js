@@ -194,3 +194,25 @@ test('doctor --json exits nonzero on FAIL and emits parseable JSON', async (t) =
   assert.equal(j.ok, false);
   assert.ok(j.checks.length > 5);
 });
+
+test('doctor --quiet prints one summary line with the normal exit code; --json wins', async (t) => {
+  const re = /^\d+ pass, \d+ warn, \d+ fail, \d+ info — (OK|NEEDS ATTENTION)$/;
+  const good = makeWorld();
+  t.after(good.cleanup);
+  const full = capture();
+  const fullCode = await main(['doctor'], { env: good.env, ...full });
+  const q = capture();
+  assert.equal(await main(['doctor', '--quiet'], { env: good.env, ...q }), fullCode);
+  assert.match(q.chunks.out.replace(/\n$/, ''), re);
+  assert.equal(q.chunks.out.trim().split('\n').length, 1);
+
+  const bad = makeWorld({ mcConfig: fx('magic-context-bad.jsonc') });
+  t.after(bad.cleanup);
+  const qb = capture();
+  assert.equal(await main(['doctor', '--quiet'], { env: bad.env, ...qb }), 1);
+  assert.match(qb.chunks.out.trim(), /NEEDS ATTENTION$/);
+
+  const qj = capture();
+  await main(['doctor', '--quiet', '--json'], { env: bad.env, ...qj });
+  assert.equal(JSON.parse(qj.chunks.out).ok, false);
+});

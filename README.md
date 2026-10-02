@@ -206,7 +206,7 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
   INFO  Running sessions: running OMO sessions keep the setup they started with; restart them after setup/uninstall
 ```
 
-`doctor --json` returns machine-readable output and exits nonzero on any FAIL. `--strict` turns unverified OMO/Senpi versions into FAIL.
+`doctor --json` returns machine-readable output and exits nonzero on any FAIL. `doctor --quiet` prints only the summary line, for scripts, and keeps the same exit code; `--json` takes precedence if both are given. `--strict` turns unverified OMO/Senpi versions into FAIL.
 
 ## Compatibility
 
