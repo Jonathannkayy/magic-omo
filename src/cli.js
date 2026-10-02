@@ -1,7 +1,7 @@
 // magic-omo command-line interface.
 import { createInterface } from 'node:readline/promises';
 import { PIN, PKG } from './compat.js';
-import { formatDoctor, runDoctor } from './doctor.js';
+import { formatDoctor, formatSummary, runDoctor } from './doctor.js';
 import { guardInstall, guardRun, guardTargets, guardUninstall } from './guard.js';
 import { applySetup, describeEdit, planSetup, readRecord, uninstall } from './install.js';
 import { allPaths } from './paths.js';
@@ -11,7 +11,7 @@ export const HELP = `magic-omo ${PKG.version} — Magic Context for OMO Native (
 
 Usage:
   magic-omo setup [--yes] [--dry-run] [--keep-omo-memory] [--todowrite | --no-todowrite]
-  magic-omo doctor [--json] [--strict] [--probe-models]
+  magic-omo doctor [--json] [--quiet] [--strict] [--probe-models]
   magic-omo status [--json]
   magic-omo uninstall [--yes] [--dry-run]
   magic-omo guard install|uninstall [--dry-run] | guard run
@@ -24,6 +24,7 @@ setup      Installs the pinned @cortexkit/pi-magic-context ${PIN.magic_context} 
            in the shared Magic Context config (asks first; --todowrite / --no-todowrite to decide
            non-interactively). Every change is backed up and revertible by \`uninstall\`.
 doctor     Read-only health checks: PASS/WARN/FAIL/INFO. Exit 1 on any FAIL.
+           --quiet         print only the summary line (same exit code)
            --strict        treat unverified OMO/Senpi versions as FAIL
            --probe-models  ask OMO to resolve each historian/dreamer model. This makes ONE small
                            real model call per distinct model on your account.
@@ -143,6 +144,7 @@ async function cmdSetup(flags, env, io) {
 async function cmdDoctor(flags, env, io) {
   const r = await runDoctor({ env, strict: Boolean(flags.strict), probe: Boolean(flags['probe-models']) });
   if (flags.json) io.out(JSON.stringify(r, null, 2));
+  else if (flags.quiet) io.out(formatSummary(r));
   else io.out(formatDoctor(r, { color: io.stdout.isTTY }));
   return r.ok ? 0 : 1;
 }
