@@ -26,7 +26,7 @@ test('setup --yes then uninstall --yes: settings.json sorted-key identical, omo.
   const p = allPaths(w.env);
   const s1 = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
   assert.ok(s1.extensions.includes(p.extension));
-  assert.deepEqual(s1.compaction, { enabled: false, summarizationMaxDurationMs: 1500000 }, 'siblings preserved');
+  assert.deepEqual(s1.compaction, { enabled: true, summarizationMaxDurationMs: 1500000 }, 'native compaction untouched (resume recovery path) and siblings preserved');
   const o1 = parse(readFileSync(w.omoConfigFile, 'utf8'));
   for (const k of ['facts', 'recall', 'nudge', 'reflection', 'dream']) assert.equal(o1['[native]'].memory[k].enabled, false);
   assert.equal(o1['[native]'].memory.enabled, true, 'curated memory master switch untouched');
@@ -126,7 +126,8 @@ test('missing settings/omo config: setup creates them and uninstall leaves equiv
   t.after(w.cleanup);
   assert.equal((await cli(['setup', '--yes'], w)).code, 0);
   const s = JSON.parse(readFileSync(w.settingsFile, 'utf8'));
-  assert.equal(s.compaction.enabled, false);
+  assert.equal(s.compaction, undefined, 'setup never writes a compaction block');
+  assert.ok(s.extensions.length === 1);
   assert.equal((await cli(['uninstall', '--yes'], w)).code, 0);
   assert.deepEqual(JSON.parse(readFileSync(w.settingsFile, 'utf8')), {});
   assert.deepEqual(parse(readFileSync(w.omoConfigFile, 'utf8')), {});
