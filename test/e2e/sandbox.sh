@@ -73,7 +73,8 @@ timeout "${SANDBOX_TIMEOUT:-300}" omo ${MODEL:+--model "$MODEL"} -p \
   "Call ctx_memory with action write, category CONFIG_VALUES, content '$TOKEN canary'. Then reply DONE." || true
 
 fail() { echo "E2E FAIL: $*" >&2; exit 1; }
-PIN=$(node -p "require('$REPO/compat.json').pin.magic_context")
+# The version setup actually selected in this sandbox (see `magic-omo status --json`).
+PIN=$(node "$REPO/bin/magic-omo.js" status --json | node -p "JSON.parse(require('node:fs').readFileSync(0,'utf8')).magic_context")
 grep -q "loaded v$PIN" "$MAGIC_CONTEXT_LOG_PATH" || fail "extension did not load at v$PIN"
 grep -q "registered tools: ctx_search, ctx_memory" "$MAGIC_CONTEXT_LOG_PATH" || fail "ctx tools not registered"
 n_sb=$(sqlite3 -readonly "$MAGIC_CONTEXT_STORAGE_DIR/context.db" "select count(*) from memories where content like '$TOKEN%'")

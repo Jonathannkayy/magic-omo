@@ -76,4 +76,6 @@ gh api repos/$R --jq '{squash:.allow_squash_merge, merge:.allow_merge_commit, re
 
 ## Re-verifying a new OMO / Magic Context version
 
-Run `test/e2e/sandbox.sh` against the exact versions. Then add a `verified` row to `compat.json` (and change the `pin` if Magic Context moved), run `npm run compat:gen`, and open a PR.
+First run the cheap static check: `node scripts/contract-check.js --omo-ai <version> --mc <version>` (no secrets, no model calls; the `upstream-compat` workflow runs it daily for every verified pin). Then run `test/e2e/sandbox.sh` against the exact versions.
+
+A new Magic Context version is ADDED to `compat.json` `pins[]` (newest first), never swapped in: generate `vendor/<version>/{package.json,package-lock.json}` with `npm install --ignore-scripts --package-lock-only --save-exact @cortexkit/pi-magic-context@<version>`, check the lockfile `integrity` equals npm's `dist.integrity`, read `schema_fence` from `LATEST_SUPPORTED_VERSION` in that build's `dist/`, and add `matrix` rows with `status: "unverified"`. Only after the sandbox run: flip the row to `verified`, fill `evidence` and `verified_on`, and move `default_pin` to that version. Finally `npm run compat:gen` and open a PR.
