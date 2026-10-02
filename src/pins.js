@@ -18,14 +18,25 @@
 import { COMPAT, defaultPin, pinFor, series } from './compat.js';
 import { hermesCompat, openCodeMagicContext } from './peers.js';
 
-/** Collect everything selectPin() needs. `dbSchema` is awaited by the caller. */
-export function collectPeers(env = process.env, { dbSchema } = {}) {
+/**
+ * Collect everything selectPin() needs. The caller awaits the read-only schema probe
+ * (db.js schemaVersion) and passes its result as `db`; `dbSchema` alone is still
+ * accepted. A probe that was skipped or failed is recorded as `dbProblem`: an
+ * existing database we could not inspect is NOT the same as no database.
+ */
+export function collectPeers(env = process.env, { dbSchema, db } = {}) {
   const openCode = openCodeMagicContext(env).map((o) => ({ ...o, series: series(o.version) }));
   const hermes = hermesCompat(env);
-  return { openCode, hermes, dbSchema: typeof dbSchema === 'number' ? dbSchema : undefined };
+  const out = { openCode, hermes, dbSchema: typeof dbSchema === 'number' ? dbSchema : undefined };
+  if (db && !db.missing) {
+    if (typeof db.version === 'number') out.dbSchema = db.version;
+    else if (db.skipped) out.dbProblem = `schema check skipped: ${db.skipped}`;
+    else if (db.error) out.dbProblem = `could not read schema (${db.via ?? 'unknown reader'}): ${db.error}`;
+  }
+  return out;
 }
 
-/** Peer series claims, as [{ who, series, detail }]; entries without a version are skipped. */
+/** Peer series claims, as [{ who, series, detail }]. Entries without a known series are in unknownPeers(). */
 export function peerSeries(peers = {}) {
   const out = [];
   for (const o of peers.openCode ?? []) {
@@ -33,6 +44,16 @@ export function peerSeries(peers = {}) {
   }
   if (peers.hermes?.series) out.push({ who: 'magic-hermes', series: peers.hermes.series, detail: peers.hermes.file });
   return out;
+}
+
+/**
+ * OpenCode Magic Context entries whose series cannot be determined (unpinned/latest
+ * spec, unreadable path, unparseable config). Such a host may run ANY series, so it
+ * cannot be treated as absent.
+ */
+export function unknownPeers(peers = {}) {
+  return (peers.openCode ?? []).filter((o) => !o.series)
+    .map((o) => ({ who: 'OpenCode', detail: o.error ? `${o.file}: ${o.error}` : `${o.entry} (${o.via ?? 'version not detectable'})` }));
 }
 
 const bySeries = (compat, s) => compat.pins.filter((p) => series(p.magic_context) === s);
@@ -63,7 +84,34 @@ export function selectPin(env = process.env, peers = {}, { record, compat = COMP
   if (forced) {
     const pin = pinFor(forced, compat);
     if (!pin) return { error: 'unknown-pin', detail: `Magic Context ${forced} is not one of magic-omo's pins${listPins(compat)}`, peers };
-    return { pin, reason: `explicitly requested (${override ? '--mc' : 'MAGIC_OMO_MC_VERSION'})` };
+    const res = { pin, reason: `explicitly requested (${override ? '--mc' : 'MAGIC_OMO_MC_VERSION'})` };
+    const warnings = [];
+    if (peers.dbProblem) warnings.push(`the shared context.db exists but was not inspected (${peers.dbProblem}); make sure its schema is <= v${pin.schema_fence}`);
+    const unknown = unknownPeers(peers);
+    if (unknown.length) warnings.push(`Magic Context host(s) of unknown series: ${unknown.map((u) => `${u.who} ${u.detail}`).join('; ')}; make sure they run series ${series(pin.magic_context)}`);
+    if (warnings.length) res.warnings = warnings;
+    return res;
+  }
+
+  // Unknown is not absent: refuse rather than guess (an override above is the way out).
+  const unknown = unknownPeers(peers);
+  if (unknown.length) {
+    return {
+      error: 'peer-version-unknown',
+      detail: `cannot tell which Magic Context series is used by ${unknown.map((u) => `${u.who} ${u.detail}`).join('; ')}. `
+        + 'Pin that host to an exact version, or choose explicitly with `--mc <version>` (or MAGIC_OMO_MC_VERSION) once you know its series'
+        + `${listPins(compat)}.`,
+      peers,
+    };
+  }
+  if (peers.dbProblem) {
+    return {
+      error: 'db-unreadable',
+      detail: `the shared context.db exists but its schema could not be inspected (${peers.dbProblem}), so magic-omo cannot tell which pin can open it. `
+        + 'Install sqlite3 / use Node >= 22.5 so it can be read, or choose explicitly with `--mc <version>` (or MAGIC_OMO_MC_VERSION)'
+        + `${listPins(compat)}.`,
+      peers,
+    };
   }
 
   const claims = peerSeries(peers);
@@ -124,5 +172,6 @@ export function selectPin(env = process.env, peers = {}, { record, compat = COMP
 
 /** One-line explanation for doctor/CLI. */
 export function describeSelection(sel) {
-  return sel.error ? `pin selection failed (${sel.error}): ${sel.detail}` : `Magic Context ${sel.pin.magic_context} — ${sel.reason}`;
+  if (sel.error) return `pin selection failed (${sel.error}): ${sel.detail}`;
+  return `Magic Context ${sel.pin.magic_context} — ${sel.reason}${sel.warnings?.length ? ` (WARNING: ${sel.warnings.join('; ')})` : ''}`;
 }
