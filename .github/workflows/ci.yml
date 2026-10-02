@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 6 * * *'   # daily: catches upstream/runner drift with no code change
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

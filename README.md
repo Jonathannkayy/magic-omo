@@ -274,6 +274,8 @@ rm -rf ~/.local/share/magic-omo   # optional: remove the vendored runtime, recor
 
 ## Contributing
 
+Issues and pull requests are handled by Dante, an AI maintainer: every PR gets a full OMO Native `review-work` report, and issues are planned and fixed with `ulw-plan` → `ulw-execute`. The rules (and what the bot will never do) are in [MAINTAINER_BOT.md](MAINTAINER_BOT.md).
+
 PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first (fork + PR, tests required, conventional commits). Bugs in Magic Context or OMO themselves belong upstream; the [issue chooser](.github/ISSUE_TEMPLATE/config.yml) links there.
 
 ## Credits & thanks
