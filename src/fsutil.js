@@ -58,3 +58,8 @@ export function backup(file, backupRoot, ts, label = path.basename(file)) {
   atomicWrite(sums, `${prior}${digest}  ${label}\n`);
   return { path: dest, sha256: digest, source: file };
 }
+
+/** True when `child` is inside directory `parent`. */
+export function isWithin(parent, child) {
+  return child.startsWith(parent);
+}
