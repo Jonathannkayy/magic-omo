@@ -13,7 +13,7 @@ Run [Magic Context](https://github.com/cortexkit/magic-context) inside [OMO Nati
 [![OMO Native](https://img.shields.io/badge/OMO%20Native-5.1.7-7c3aed)](docs/COMPATIBILITY.md)
 [![Magic Context](https://img.shields.io/badge/Magic%20Context-0.43.2-f59e0b)](https://github.com/cortexkit/magic-context)
 
-[Quick start](#quick-start) · [What setup changes](#what-setup-changes) · [Doctor](#doctor) · [Compatibility](#compatibility) · [FAQ](#faq) · [Credits](#credits--thanks)
+[Why not just `omo install`?](#why-not-just-omo-install-it) · [Quick start](#quick-start) · [What setup changes](#what-setup-changes) · [Doctor](#doctor) · [Compatibility](#compatibility) · [FAQ](#faq) · [Credits](#credits--thanks)
 
 <img src="docs/assets/hero.png" alt="OMO Native mid-session in a demo project: todo list, applied patch diffs, a Magic Context compaction notice, and the status line showing the model plus an mc: segment with the historian running" width="820">
 <!-- hero.png: real OMO Native 5.1.7 TUI session on a fictional demo project with a fresh, empty Magic Context store. How it was made: docs/assets/README.md -->
@@ -65,6 +65,17 @@ Magic Context gives coding agents managed context with no hard wall: background 
 - **Mixed versions on one DB break everyone.** Every process that shares `context.db` must run the same Magic Context series.
 
 `magic-omo` handles each of these for you, makes every change reversible, and re-checks the setup whenever OMO or the pinned extension changes.
+
+## Why not just `omo install` it?
+
+You can. Magic Context's Pi runtime loads in OMO Native with a plain `omo install`, and magic-omo installs that same runtime, unmodified. What magic-omo adds is everything around it that breaks later:
+
+- **No double memory.** A plain install leaves OMO's automatic memory (facts, recall, nudge, reflection, dream) running next to Magic Context's, so the same context is injected twice. Setup switches off only the automatic part; OMO's curated memory (`memory` tool, soul) stays exactly as it is.
+- **A historian that actually runs.** If the historian model doesn't resolve on OMO, Magic Context loads fine but never compacts, and nothing tells you. `magic-omo doctor --probe-models` catches it.
+- **No version drift.** A plain install follows the latest release. If OpenCode or Hermes share the same `context.db`, a newer series migrates the database forward and locks them out. magic-omo pins the series your other hosts already run, keeps `omo update` from moving it, and checks new upstream releases daily.
+- **Compaction that can't deadlock.** Upstream's OMP setup turns native compaction off. On OMO Native that makes any session that outgrew the window impossible to resume, so magic-omo leaves it on and lets Magic Context cancel it ([details](#why-native-compaction-stays-on)).
+
+If you only use OMO Native and nothing else touches the database, you are mostly fine already; `npx magic-omo doctor` is still a quick health check.
 
 ## How it fits together
 
