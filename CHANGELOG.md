@@ -9,6 +9,17 @@ the tag; otherwise GitHub generates them from the merged pull requests.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-03
+
+### Changed
+
+- Releases publish through npm trusted publishing (OIDC, no stored token) in stage-only
+  mode: CI queues the version and it goes live only after the owner approves it with 2FA.
+
+### Fixed
+
+- `release.yml`: the RELEASE_NOTES.md check no longer fails with a bash syntax error.
+
 ## [0.2.0] - 2026-10-02
 
 ### Added
