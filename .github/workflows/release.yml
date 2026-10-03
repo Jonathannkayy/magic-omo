@@ -54,8 +54,8 @@ jobs:
           body_path: ${{ steps.notes.outputs.body_path }}
           generate_release_notes: ${{ steps.notes.outputs.generate == 'true' }}
   npm-publish:
-    # Gated: requires the NPM_TOKEN secret AND the protected "npm" environment
-    # (configure required reviewers so a maintainer approves every publish).
+    # Gated: the protected "npm" environment (owner approval, v* tags only) and npm's
+    # trusted-publisher binding for this repo/workflow/environment.
     needs: build
     runs-on: ubuntu-latest
     environment: npm
@@ -70,9 +70,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: Publish with provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing (OIDC, no stored token) restricted to STAGED publishing:
+      # CI only queues the version; it goes live after the owner approves it with 2FA
+      # on npmjs.com (or `npm stage approve`). Needs npm >= 11.15.0.
+      - name: Stage publish with provenance
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "NPM_TOKEN not set; skipping publish"; exit 0; fi
-          npm publish --provenance --access public
+          npm install -g npm@11.15.0
+          npm --version
+          npm stage publish --provenance --access public
