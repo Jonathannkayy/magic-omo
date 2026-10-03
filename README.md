@@ -68,14 +68,14 @@ Magic Context gives coding agents managed context with no hard wall: background 
 
 ## Why not just `omo install` it?
 
-You can. Magic Context's Pi runtime loads in OMO Native with a plain `omo install`, and magic-omo installs that same runtime, unmodified. What magic-omo adds is everything around it that breaks later:
+You can. Magic Context's Pi runtime loads in OMO Native with a plain `omo install`, and magic-omo installs that exact same runtime, unmodified. What magic-omo adds is the setup around it:
 
-- **No double memory.** A plain install leaves OMO's automatic memory (facts, recall, nudge, reflection, dream) running next to Magic Context's, so the same context is injected twice. Setup switches off only the automatic part; OMO's curated memory (`memory` tool, soul) stays exactly as it is.
-- **A historian that actually runs.** If the historian model doesn't resolve on OMO, Magic Context loads fine but never compacts, and nothing tells you. `magic-omo doctor --probe-models` catches it.
-- **No version drift.** A plain install follows the latest release. If OpenCode or Hermes share the same `context.db`, a newer series migrates the database forward and locks them out. magic-omo pins the series your other hosts already run, keeps `omo update` from moving it, and checks new upstream releases daily.
-- **Compaction that can't deadlock.** Upstream's OMP setup turns native compaction off. On OMO Native that makes any session that outgrew the window impossible to resume, so magic-omo leaves it on and lets Magic Context cancel it ([details](#why-native-compaction-stays-on)).
+- **One automatic memory, not two.** OMO's automatic memory (`facts`, `recall`, `nudge`, `reflection`, `dream`) is on by default, so a plain install runs two memory injectors side by side. Magic Context's own OMP setup turns the host's automatic memory off for the same reason ("a second memory injector duplicates recall and retention"). magic-omo switches off only those five keys; OMO's curated memory (the `memory` tool, soul) is untouched. Keep both with `--keep-omo-memory`.
+- **No version drift.** `omo update` updates every extension that is not local or pinned. If OpenCode or Hermes share the same `context.db`, a newer Magic Context migrates the database forward and the older hosts refuse to open it. magic-omo pins the series your other hosts already run as a local path, so `omo update` cannot move it, and checks new upstream releases daily.
+- **A historian model that resolves on OMO.** If the historian model is not usable on OMO, compaction stalls on it. `magic-omo doctor --probe-models` checks the model before you find out mid-session.
+- **Compaction that can't deadlock.** Upstream's OMP steps turn native compaction off. On OMO Native that stops sessions that outgrew the window from resuming, so magic-omo leaves it on and lets Magic Context cancel it ([details](#why-native-compaction-stays-on)).
 
-If you only use OMO Native and nothing else touches the database, you are mostly fine already; `npx magic-omo doctor` is still a quick health check.
+If you only run OMO Native and nothing else touches the database, a plain install is mostly fine; `npx magic-omo doctor` is still a quick health check.
 
 ## How it fits together
 
