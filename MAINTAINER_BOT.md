@@ -17,8 +17,9 @@ do, and how you reach a human.
 ## Merge rules (enforced by branch protection, not by goodwill)
 
 - Nobody pushes to `main`. Everything lands through a pull request.
-- The bot never merges a PR that is closed, a draft, or has moved since it was reviewed, and never merges the owner's own PRs
-  until the owner adds the `owner-approved` label.
+- Bot-side safeguards (enforced by the bot itself, on top of branch protection): it never merges a PR that is closed, a draft,
+  or has moved since it was reviewed; it never merges while a cubic finding is unresolved; and it never merges the owner's own
+  PRs until the owner adds the `owner-approved` label.
 - Required checks: the full CI matrix, lint, and `magic-omo/review` (only the maintainer sets that last one). CodeQL
   becomes a required check automatically when the repository is public; GitHub doesn't offer code scanning on free
   private repositories, so until then it is skipped.
