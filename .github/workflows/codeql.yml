@@ -7,6 +7,9 @@ on:
     - cron: '23 4 * * 1'
 permissions:
   contents: read
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   analyze:
     name: analyze (javascript)
@@ -14,9 +17,9 @@ jobs:
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     permissions:
-      security-events: write
+      security-events: write   # upload code-scanning results
       contents: read
-      actions: read
+      actions: read            # read workflow run metadata for the upload
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

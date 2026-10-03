@@ -67,10 +67,12 @@ jobs:
           node-version: 24
       - name: Contract check
         id: check
+        env:   # passed via env, never expanded into the script (template injection)
+          OMO: ${{ matrix.combo.omo }}
+          MC: ${{ matrix.combo.mc }}
         run: |
           set -o pipefail
-          node scripts/contract-check.js --omo-ai "${{ matrix.combo.omo }}" --mc "${{ matrix.combo.mc }}" \
-            | tee "contract-${{ matrix.combo.mc }}-${{ matrix.combo.omo }}.json"
+          node scripts/contract-check.js --omo-ai "$OMO" --mc "$MC" | tee "contract-${MC}-${OMO}.json"
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

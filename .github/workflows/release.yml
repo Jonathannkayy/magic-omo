@@ -4,6 +4,9 @@ on:
     tags: ['v*']
 permissions:
   contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
     name: test and pack
@@ -15,6 +18,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          package-manager-cache: false   # release jobs never restore a cache (cache poisoning)
       - name: Tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "${GITHUB_REF_NAME}"
       - run: npm test
@@ -25,10 +29,11 @@ jobs:
           name: tarball
           path: '*.tgz'
   github-release:
+    name: github release
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # create the GitHub release and attach the tarball
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -54,6 +59,7 @@ jobs:
           body_path: ${{ steps.notes.outputs.body_path }}
           generate_release_notes: ${{ steps.notes.outputs.generate == 'true' }}
   npm-publish:
+    name: npm stage publish
     # Gated: the protected "npm" environment (owner approval, v* tags only) and npm's
     # trusted-publisher binding for this repo/workflow/environment.
     needs: build
@@ -61,7 +67,7 @@ jobs:
     environment: npm
     permissions:
       contents: read
-      id-token: write
+      id-token: write   # npm trusted publishing (OIDC) + provenance signing
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,6 +76,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false   # release jobs never restore a cache (cache poisoning)
       # Trusted publishing (OIDC, no stored token) restricted to STAGED publishing:
       # CI only queues the version; it goes live after the owner approves it with 2FA
       # on npmjs.com (or `npm stage approve`). Needs npm >= 11.15.0.
