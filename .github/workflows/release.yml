@@ -77,4 +77,5 @@ jobs:
         run: |
           npm install -g npm@11.15.0
           npm --version
-          npm stage publish --provenance --access public
+          # verbose: npm only reports why an OIDC exchange failed at this level (no secrets printed)
+          npm stage publish --provenance --access public --loglevel verbose
