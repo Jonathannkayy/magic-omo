@@ -61,5 +61,6 @@ export function backup(file, backupRoot, ts, label = path.basename(file)) {
 
 /** True when `child` is inside directory `parent`. */
 export function isWithin(parent, child) {
-  return child.startsWith(parent);
+  const rel = path.relative(parent, child);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
