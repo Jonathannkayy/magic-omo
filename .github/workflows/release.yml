@@ -70,9 +70,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # Trusted publishing (OIDC): npm verifies this workflow + the "npm" environment;
-      # no stored token. Needs npm >= 11.5.1 (Node 24 ships it).
-      - name: Publish with provenance
+      # Trusted publishing (OIDC, no stored token) restricted to STAGED publishing:
+      # CI only queues the version; it goes live after the owner approves it with 2FA
+      # on npmjs.com (or `npm stage approve`). Needs npm >= 11.15.0.
+      - name: Stage publish with provenance
         run: |
+          npm install -g npm@11.15.0
           npm --version
-          npm publish --provenance --access public
+          npm stage publish --provenance --access public
