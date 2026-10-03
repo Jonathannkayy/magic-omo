@@ -241,20 +241,22 @@ magic-omo 0.1.0 doctor — Magic Context 0.43.2 (schema fence v90)
 <!-- BEGIN GENERATED: compat (npm run compat:gen) -->
 | Magic Context | Schema fence | Lockfile | npm integrity | Verified combinations |
 |---|---|---|---|---|
-| `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | omo-ai 5.1.11 / senpi 2026.10.1-3, omo-ai 5.1.10 / senpi 2026.10.1-3, omo-ai 5.1.9 / senpi 2026.10.1-3 |
-| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.11 / senpi 2026.10.1-3, omo-ai 5.1.10 / senpi 2026.10.1-3, omo-ai 5.1.9 / senpi 2026.10.1-3, omo-ai 5.1.7 / senpi 2026.9.30 |
+| `0.44.4` | `v91` | [`vendor/0.44.4/package-lock.json`](vendor/0.44.4/package-lock.json) | `sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==` | omo-ai 5.1.12 / senpi 2026.10.2, omo-ai 5.1.11 / senpi 2026.10.1-3, omo-ai 5.1.10 / senpi 2026.10.1-3, omo-ai 5.1.9 / senpi 2026.10.1-3 |
+| `0.43.2` **(default)** | `v90` | [`vendor/0.43.2/package-lock.json`](vendor/0.43.2/package-lock.json) | `sha512-9l/OpJXgj/Uavz3JQXhJEE4BMxgg/iv96JWCjW8jeP2MxuPJgfVggdmgEHBD1m3aV22nxYaYbMaAvy8HqYhrDw==` | omo-ai 5.1.12 / senpi 2026.10.2, omo-ai 5.1.11 / senpi 2026.10.1-3, omo-ai 5.1.10 / senpi 2026.10.1-3, omo-ai 5.1.9 / senpi 2026.10.1-3, omo-ai 5.1.7 / senpi 2026.9.30 |
 
 <details>
 <summary>Full verification matrix</summary>
 
 | Magic Context | Schema fence | OMO Native (`omo-ai`) | Senpi | Status | Verified | Evidence | Notes |
 |---|---|---|---|---|---|---|---|
-| **0.44.4** | v91 | `5.1.11` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
+| **0.44.4** | v91 | `5.1.12` | `2026.10.2` | ✅ verified | 2026-10-03 | compat_e2e 2026-10-03: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
+|  |  | `5.1.11` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.10` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.9` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
 |  |  | `5.1.7` | `2026.9.30` | ⚠️ unverified | — | — | Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run. |
-| **0.43.2** **(default)** | v90 | `5.1.11` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
+| **0.43.2** **(default)** | v90 | `5.1.12` | `2026.10.2` | ✅ verified | 2026-10-03 | compat_e2e 2026-10-03: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
+|  |  | `5.1.11` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.10` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.9` | `2026.10.1-3` | ✅ verified | 2026-10-02 | compat_e2e 2026-10-02: {"loaded":true,"tools":true,"no_fail_closed":true,"write_landed":true,"search_found":true} | Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found. |
 |  |  | `5.1.8` | `2026.10.1-2` | ⚠️ unverified | — | — | Released after the last verification. Doctor reports WARN (FAIL with --strict) until re-verified. |
