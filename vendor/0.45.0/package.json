@@ -1,0 +1,8 @@
+{
+  "name": "magic-omo-vendor",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@cortexkit/pi-magic-context": "0.45.0"
+  }
+}
