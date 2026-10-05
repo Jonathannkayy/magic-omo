@@ -1,6 +1,6 @@
 {
   "name": "magic-omo",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Unofficial community bridge: run Magic Context (cortexkit) inside OMO Native (oh-my-openagent's Senpi-based omo CLI), sharing one context.db with OpenCode and Hermes.",
   "type": "module",
   "bin": {
