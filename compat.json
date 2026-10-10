@@ -3,6 +3,13 @@
   "pins": [
     {
       "package": "@cortexkit/pi-magic-context",
+      "magic_context": "0.45.0",
+      "integrity": "sha512-E6g+JEPuer4yObohdAbNfjnod/G8wf5dnMFYtYq/oJx+YjVy9bwoLkPGDkMg0Ygopb0HRzGpEvB9SRx6B3hp5g==",
+      "schema_fence": 94,
+      "lockfile": "vendor/0.45.0/package-lock.json"
+    },
+    {
+      "package": "@cortexkit/pi-magic-context",
       "magic_context": "0.44.4",
       "integrity": "sha512-MHCWA3xDgSqxSbR7QJzgJT23LmlznOCmYg0miDGfnmxGE7nqq1TYoOif1KGDF9LXPfvOYf9fcXg1goB6o2I83g==",
       "schema_fence": 91,
@@ -18,6 +25,36 @@
   ],
   "default_pin": "0.43.2",
   "matrix": [
+    {
+      "magic_context": "0.45.0",
+      "schema_fence": 94,
+      "omo": "5.1.18",
+      "senpi": "2026.10.9",
+      "status": "verified",
+      "verified_on": "2026-10-05",
+      "notes": "Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found.",
+      "evidence": "compat_e2e 2026-10-05: {\"loaded\":true,\"tools\":true,\"no_fail_closed\":true,\"write_landed\":true,\"search_found\":true}"
+    },
+    {
+      "magic_context": "0.45.0",
+      "schema_fence": 94,
+      "omo": "5.1.17",
+      "senpi": "2026.10.8",
+      "status": "verified",
+      "verified_on": "2026-10-05",
+      "notes": "Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found.",
+      "evidence": "compat_e2e 2026-10-05: {\"loaded\":true,\"tools\":true,\"no_fail_closed\":true,\"write_landed\":true,\"search_found\":true}"
+    },
+    {
+      "magic_context": "0.44.4",
+      "schema_fence": 91,
+      "omo": "5.1.18",
+      "senpi": "2026.10.9",
+      "status": "verified",
+      "verified_on": "2026-10-05",
+      "notes": "Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found.",
+      "evidence": "compat_e2e 2026-10-05: {\"loaded\":true,\"tools\":true,\"no_fail_closed\":true,\"write_landed\":true,\"search_found\":true}"
+    },
     {
       "magic_context": "0.44.4",
       "schema_fence": 91,
@@ -127,6 +164,16 @@
       "verified_on": null,
       "evidence": null,
       "notes": "Pinned; lockfile integrity matches npm. Awaiting the end-to-end sandbox run."
+    },
+    {
+      "magic_context": "0.43.2",
+      "schema_fence": 90,
+      "omo": "5.1.18",
+      "senpi": "2026.10.9",
+      "status": "verified",
+      "verified_on": "2026-10-05",
+      "notes": "Auto-verified end to end in an isolated OMO Native session: loaded, tools, no_fail_closed, write_landed, search_found.",
+      "evidence": "compat_e2e 2026-10-05: {\"loaded\":true,\"tools\":true,\"no_fail_closed\":true,\"write_landed\":true,\"search_found\":true}"
     },
     {
       "magic_context": "0.43.2",
